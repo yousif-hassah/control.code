@@ -25,6 +25,7 @@ import {
   Trash2,
   X,
   PlusCircle,
+  Link as LinkIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -707,12 +708,13 @@ export default function App() {
     localStorage.setItem("dailyHabits", JSON.stringify(updated));
   };
 
-  const addPinnedNote = () => {
+  const addPinnedNote = (title, content) => {
     const id = "p" + Date.now();
     const newNote = {
       id,
-      title: lang === "en" ? "New Note" : "ملاحظة جديدة",
-      content: lang === "en" ? "Note content..." : "محتوى الملاحظة...",
+      title: title || (lang === "en" ? "New Note" : "ملاحظة جديدة"),
+      content:
+        content || (lang === "en" ? "Note content..." : "محتوى الملاحظة..."),
       color: "#394867",
       hasVoice: false,
       hasImage: false,
@@ -776,6 +778,7 @@ export default function App() {
             saveJournal={saveJournal}
             todoLists={todoLists}
             saveTodos={saveTodos}
+            addPinnedNote={addPinnedNote}
           />
         );
       case "tasks":
@@ -1408,6 +1411,13 @@ function HomeScreen({
     setPinnedNotes(updated);
   };
 
+  const updateNoteLink = (id, link) => {
+    const updated = pinnedNotes.map((n) =>
+      n.id === id ? { ...n, link: link } : n,
+    );
+    setPinnedNotes(updated);
+  };
+
   const handleAddNote = () => {
     const newId = addPinnedNote();
     setExpandedNoteId(newId);
@@ -1802,6 +1812,33 @@ function HomeScreen({
                   <div className="indicator-item active">
                     <Paperclip size={12} />
                   </div>
+                )}
+                {note.link && (
+                  <a
+                    href={
+                      note.link.startsWith("http")
+                        ? note.link
+                        : `https://${note.link}`
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      fontSize: "0.7rem",
+                      color: note.color,
+                      textDecoration: "underline",
+                      marginTop: "5px",
+                      background: "rgba(255,255,255,0.2)",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      width: "fit-content",
+                    }}
+                  >
+                    <LinkIcon size={10} /> {lang === "en" ? "Link" : "رابط"}
+                  </a>
                 )}
               </div>
             </div>
@@ -2222,6 +2259,36 @@ function HomeScreen({
                 }
               />
 
+              <div style={{ position: "relative", marginBottom: "15px" }}>
+                <LinkIcon
+                  size={14}
+                  style={{
+                    position: "absolute",
+                    left: "12px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    opacity: 0.5,
+                  }}
+                />
+                <input
+                  type="text"
+                  placeholder={
+                    lang === "en" ? "Add Link (URL)..." : "إضافة رابط (URL)..."
+                  }
+                  value={expandedNote.link || ""}
+                  onChange={(e) =>
+                    updateNoteLink(expandedNote.id, e.target.value)
+                  }
+                  style={{
+                    ...editInputStyle(lang),
+                    paddingLeft: "35px",
+                    fontSize: "0.85rem",
+                    height: "40px",
+                    background: "rgba(0,0,0,0.03)",
+                  }}
+                />
+              </div>
+
               <div
                 className="color-presets"
                 style={{ display: "flex", gap: "8px", marginBottom: "10px" }}
@@ -2288,14 +2355,8 @@ function HomeScreen({
                     className="icon-btn"
                     style={{ color: "#ff4757" }}
                     onClick={() => {
-                      if (
-                        confirm(
-                          lang === "en" ? "Delete note?" : "حذف الملاحظة؟",
-                        )
-                      ) {
-                        deletePinnedNote(expandedNote.id);
-                        setExpandedNoteId(null);
-                      }
+                      deletePinnedNote(expandedNote.id);
+                      setExpandedNoteId(null);
                     }}
                   >
                     <Trash2 size={20} />
@@ -2326,6 +2387,7 @@ function JournalDetailsScreen({
   lang,
   t,
   user,
+  addPinnedNote,
 }) {
   const dayData = journals[selectedDate] || {};
   const [entries, setEntries] = useState(
@@ -2659,12 +2721,35 @@ function JournalDetailsScreen({
                   }}
                 >
                   <span>{note.time}</span>
-                  <button
-                    onClick={() => deleteNote(note.id)}
-                    style={{ border: "none", background: "none", opacity: 0.5 }}
-                  >
-                    <Plus size={14} style={{ transform: "rotate(45deg)" }} />
-                  </button>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <button
+                      className="note-action-btn"
+                      onClick={() => {
+                        addPinnedNote(
+                          lang === "en" ? "Pinned Entry" : "ملاحظة مثبتة",
+                          note.text,
+                        );
+                      }}
+                      style={{
+                        border: "none",
+                        background: "none",
+                        opacity: 0.5,
+                      }}
+                    >
+                      <Pin size={14} />
+                    </button>
+                    <button
+                      className="note-action-btn"
+                      onClick={() => deleteNote(note.id)}
+                      style={{
+                        border: "none",
+                        background: "none",
+                        opacity: 0.5,
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
                 </div>
                 <div
                   style={{
@@ -2711,23 +2796,18 @@ function JournalDetailsScreen({
         <div style={{ display: "flex", gap: "10px" }}>
           <button
             onClick={addNote}
-            className="btn-secondary"
-            style={{ flex: 1, borderRadius: "12px", height: "48px" }}
-          >
-            {t.addNote}
-          </button>
-          <button
-            onClick={handleSave}
             className="btn-primary"
             style={{
               flex: 1,
-              backgroundColor: "#D35400",
-              color: "white",
               borderRadius: "12px",
               height: "48px",
+              backgroundColor: "#D35400",
+              color: "white",
+              border: "none",
+              fontWeight: 700,
             }}
           >
-            {t.saveJournal}
+            {t.addNote}
           </button>
         </div>
       </div>

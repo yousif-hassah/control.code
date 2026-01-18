@@ -142,6 +142,11 @@
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
 
+.iphone-frame.theme-dark .details-screen .note-action-btn {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
 .iphone-frame.theme-dark .day-name {
   color: #888888;
 }
