@@ -11,8 +11,8 @@
 }
 
 .glass-widget {
-  min-width: 200px;
-  height: 220px;
+  min-width: 160px;
+  height: 200px;
   background: color-mix(
     in srgb,
     var(--widget-color) 15%,
@@ -21,8 +21,8 @@
   backdrop-filter: blur(25px) saturate(180%);
   -webkit-backdrop-filter: blur(25px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 35px;
-  padding: 24px;
+  border-radius: 30px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -46,10 +46,10 @@
 }
 
 .glass-widget h3 {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: #000;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -58,13 +58,13 @@
 }
 
 .glass-widget p {
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   color: #333;
-  line-height: 1.5;
+  line-height: 1.4;
   font-weight: 500;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -98,7 +98,18 @@
   --color-3: #888888; /* Dim text */
   --color-4: #000000; /* Pure Black Background */
   background: #000000 !important;
-  color: #ffffff !important;
+  color: #e0e0e0 !important; /* Changed from #ffffff to #e0e0e0 for better reading */
+}
+
+/* Specific profile text adjustment for dark mode */
+.iphone-frame.theme-dark .profile-screen h1,
+.iphone-frame.theme-dark .profile-screen h2,
+.iphone-frame.theme-dark .profile-screen .profile-menu-item span {
+  color: #9ba4b5 !important;
+}
+
+.iphone-frame.theme-dark .profile-screen p {
+  color: #777777 !important;
 }
 
 .iphone-frame.theme-dark .day-name {
@@ -119,7 +130,8 @@
 .iphone-frame.theme-dark .main-journal-card,
 .iphone-frame.theme-dark .calendar-day .date-circle,
 .iphone-frame.theme-dark .btn-secondary,
-.iphone-frame.theme-dark .bottom-nav {
+.iphone-frame.theme-dark .bottom-nav,
+.iphone-frame.theme-dark .profile-menu-item {
   background: rgba(255, 255, 255, 0.05) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   color: white !important;
@@ -269,7 +281,7 @@ h1,
 h2,
 h3 {
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 p {
@@ -285,7 +297,7 @@ p {
 }
 
 .section-header h2 {
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   color: var(--text-main);
 }
 
@@ -364,8 +376,8 @@ p {
   margin-bottom: 24px;
 }
 .profile-img img {
-  width: 50px;
-  height: 50px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 2px solid white;
 }
@@ -468,11 +480,11 @@ p {
   cursor: pointer;
 }
 .journal-content h3 {
-  font-size: 1.2rem;
+  font-size: 1.05rem;
   margin-bottom: 4px;
 }
 .journal-content p {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--color-1);
   opacity: 0.8;
   max-width: 150px;
@@ -873,20 +885,20 @@ p {
 
 .rich-content-indicators {
   display: flex;
-  gap: 10px;
-  margin-top: 15px;
+  gap: 8px;
+  margin-top: 12px;
   background: rgba(255, 255, 255, 0.2);
-  padding: 8px 12px;
-  border-radius: 15px;
+  padding: 6px 10px;
+  border-radius: 12px;
   width: fit-content;
 }
 
 .indicator-item {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   color: #999;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
 }
 
 .indicator-item.active {
@@ -903,8 +915,8 @@ p {
 .glass-widget-footer {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.7rem;
+  gap: 5px;
+  font-size: 0.65rem;
   color: #999;
 }
 
@@ -1188,18 +1200,18 @@ p {
 
 .expanded-note-content {
   width: 100%;
-  max-width: 400px;
+  max-width: 380px;
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(40px) saturate(200%);
   -webkit-backdrop-filter: blur(40px) saturate(200%);
-  border-radius: 45px;
-  padding: 35px;
+  border-radius: 35px;
+  padding: 28px;
   box-shadow:
     0 40px 100px rgba(0, 0, 0, 0.2),
     inset 0 0 20px rgba(255, 255, 255, 0.4);
   display: flex;
   flex-direction: column;
-  gap: 25px;
+  gap: 20px;
   max-height: 85vh;
   overflow-y: auto;
   position: relative;
@@ -1214,7 +1226,7 @@ p {
 }
 
 .note-edit-title {
-  font-size: 1.6rem;
+  font-size: 1.3rem;
   font-weight: 700;
   border: none;
   background: transparent;
@@ -1225,14 +1237,14 @@ p {
 }
 
 .note-edit-text {
-  font-size: 1.1rem;
-  line-height: 1.7;
+  font-size: 0.95rem;
+  line-height: 1.6;
   border: none;
   background: transparent;
   width: 100%;
   color: inherit;
   resize: none;
-  min-height: 200px;
+  min-height: 150px;
   outline: none;
   font-family: inherit;
   font-weight: 400;
@@ -1293,9 +1305,9 @@ p {
 .icon-btn {
   background: transparent;
   border: none;
-  width: 48px;
-  height: 48px;
-  border-radius: 18px;
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1321,10 +1333,10 @@ p {
   background: var(--color-5);
   color: white;
   border: none;
-  padding: 14px 28px;
-  border-radius: 22px;
+  padding: 12px 24px;
+  border-radius: 20px;
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 0.95rem;
   cursor: pointer;
   box-shadow: 0 10px 20px rgba(29, 84, 109, 0.3);
   transition: var(--transition);
@@ -1333,4 +1345,73 @@ p {
 .close-expanded-btn:hover {
   transform: scale(1.05);
   box-shadow: 0 15px 25px rgba(29, 84, 109, 0.4);
+}
+/* Professional Notifications */
+.notification-card {
+  position: relative;
+  transition: var(--transition);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  background: white;
+  border-radius: 24px;
+  padding: 16px;
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.iphone-frame.theme-dark .notification-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.notification-icon-wrapper {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.notification-content {
+  flex: 1;
+}
+
+.notification-time {
+  font-size: 0.7rem;
+  color: var(--color-3);
+  margin-top: 4px;
+}
+
+.unread-indicator {
+  width: 10px;
+  height: 10px;
+  background: #ff4757;
+  border-radius: 50%;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  box-shadow: 0 0 10px rgba(255, 71, 87, 0.4);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--color-3);
+}
+
+.fade-in {
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

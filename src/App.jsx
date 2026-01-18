@@ -384,12 +384,33 @@ export default function App() {
     return saved ? JSON.parse(saved) : {};
   });
   const [notifications, setNotifications] = useState([
-    { id: 1, text: "Welcome to ZenFlow!", time: "1h ago", read: false },
+    {
+      id: 1,
+      type: "system",
+      text:
+        lang === "en" ? "Welcome to ZenFlow! 🧘" : "مرحباً بك في ZenFlow! 🧘",
+      time: lang === "en" ? "1h ago" : "منذ ساعة",
+      read: false,
+    },
     {
       id: 2,
-      text: "Group 'Family Trip' has a new update",
-      time: "3h ago",
+      type: "social",
+      text:
+        lang === "en"
+          ? "Group 'Family Trip' has a new update"
+          : "هناك تحديث جديد في مجموعة 'رحلة العائلة'",
+      time: lang === "en" ? "3h ago" : "منذ 3 ساعات",
       read: true,
+    },
+    {
+      id: 3,
+      type: "milestone",
+      text:
+        lang === "en"
+          ? "You've reached a 7-day streak! 🔥"
+          : "لقد وصلت إلى سلسلة من 7 أيام! 🔥",
+      time: lang === "en" ? "5h ago" : "منذ 5 ساعات",
+      read: false,
     },
   ]);
   const [activeMeditation, setActiveMeditation] = useState(null);
@@ -449,46 +470,29 @@ export default function App() {
     return migrated;
   });
 
-  const [pinnedNotes, setPinnedNotes] = useState(() => {
+  const [allPinnedNotes, setAllPinnedNotes] = useState(() => {
     const saved = localStorage.getItem("pinnedNotes");
-    return saved
-      ? JSON.parse(saved)
-      : [
-          {
-            id: "p1",
-            title: "Morning Routine 🧘",
-            content:
-              "10 mins meditation, drink lemon water, write 3 gratitudes.",
-            color: "#008080", // Dark Teal
-            hasVoice: true,
-            hasImage: true,
-            hasFile: false,
-            pinned: true,
-          },
-          {
-            id: "p2",
-            title: "Work Strategy 🚀",
-            content:
-              "Focus on the core module development. Review PRs by 2 PM.",
-            color: "#FF6B6B",
-            hasVoice: false,
-            hasImage: true,
-            hasFile: true,
-            pinned: true,
-          },
-          {
-            id: "p3",
-            title: "Grocery List 🛒",
-            content:
-              "Avocados, Almond milk, Quinoa, Blueberries, Dark chocolate.",
-            color: "#51cf66",
-            hasVoice: true,
-            hasImage: false,
-            hasFile: false,
-            pinned: true,
-          },
-        ];
+    if (!saved) return {};
+    try {
+      const parsed = JSON.parse(saved);
+      // Migration: If it's the old array format, pick today as the key
+      if (Array.isArray(parsed)) {
+        const today = formatDate(new Date());
+        return { [today]: parsed };
+      }
+      return parsed;
+    } catch (e) {
+      return {};
+    }
   });
+
+  const pinnedNotes = allPinnedNotes[selectedDate] || [];
+
+  const setPinnedNotes = (newNotes) => {
+    const updated = { ...allPinnedNotes, [selectedDate]: newNotes };
+    setAllPinnedNotes(updated);
+    localStorage.setItem("pinnedNotes", JSON.stringify(updated));
+  };
 
   const t = TRANSLATIONS[lang];
 
@@ -602,6 +606,17 @@ export default function App() {
     localStorage.setItem("todoLists", JSON.stringify(updated));
   };
 
+  const [dailyHabits, setDailyHabits] = useState(() => {
+    const saved = localStorage.getItem("dailyHabits");
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  const saveDailyHabit = (date, habit) => {
+    const updated = { ...dailyHabits, [date]: habit };
+    setDailyHabits(updated);
+    localStorage.setItem("dailyHabits", JSON.stringify(updated));
+  };
+
   const addPinnedNote = () => {
     const id = "p" + Date.now();
     const newNote = {
@@ -623,20 +638,26 @@ export default function App() {
         },
       ),
     };
-    const updated = [newNote, ...pinnedNotes];
-    setPinnedNotes(updated);
-    localStorage.setItem("pinnedNotes", JSON.stringify(updated));
+    const updatedForDate = [newNote, ...pinnedNotes];
+    setPinnedNotes(updatedForDate);
     return id;
   };
 
   const deletePinnedNote = (id) => {
-    const updated = pinnedNotes.filter((n) => n.id !== id);
-    setPinnedNotes(updated);
-    localStorage.setItem("pinnedNotes", JSON.stringify(updated));
+    const updatedForDate = pinnedNotes.filter((n) => n.id !== id);
+    setPinnedNotes(updatedForDate);
   };
 
   const renderScreen = () => {
-    const commonProps = { setScreen, lang, toggleLang, t, user, updateProfile };
+    const commonProps = {
+      setScreen,
+      lang,
+      toggleLang,
+      t,
+      user,
+      updateProfile,
+      selectedDate,
+    };
     switch (screen) {
       case "home":
         return (
@@ -645,11 +666,15 @@ export default function App() {
             selectedDate={selectedDate}
             setSelectedDate={setSelectedDate}
             journals={journals}
+            saveJournal={saveJournal}
             notifications={notifications}
             pinnedNotes={pinnedNotes}
             setPinnedNotes={setPinnedNotes}
             addPinnedNote={addPinnedNote}
             deletePinnedNote={deletePinnedNote}
+            setActiveMeditation={setActiveMeditation}
+            dailyHabit={dailyHabits[selectedDate]}
+            saveDailyHabit={saveDailyHabit}
           />
         );
       case "details":
@@ -811,19 +836,48 @@ function HomeScreen({
   setPinnedNotes,
   addPinnedNote,
   deletePinnedNote,
+  setActiveMeditation,
+  saveJournal,
+  dailyHabit,
+  saveDailyHabit,
 }) {
-  const currentJournalEntries = journals[selectedDate] || [];
+  const dayData = journals[selectedDate] || {};
+  const currentJournalEntries = Array.isArray(dayData)
+    ? dayData
+    : dayData.entries || [];
+  const journalTitle = dayData.title || "";
+  const journalImage = dayData.image || "";
+  const journalReminder = dayData.reminder || "";
+
+  const [isEditingJournal, setIsEditingJournal] = useState(false);
+  const [isEditingHabit, setIsEditingHabit] = useState(false);
+
+  const [tempJournalData, setTempJournalData] = useState({
+    title: "",
+    image: "",
+    reminder: "",
+    text: "",
+  });
+  const [tempHabit, setTempHabit] = useState(null);
+
   const lastEntry = currentJournalEntries[currentJournalEntries.length - 1];
   const lastEntryText = lastEntry ? lastEntry.text : "";
   const scrollRef = useRef(null);
+
+  const activeHabit =
+    dailyHabit ||
+    EXPLORE_ITEMS[new Date(selectedDate).getDate() % EXPLORE_ITEMS.length];
   const [expandedNoteId, setExpandedNoteId] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingNoteId, setRecordingNoteId] = useState(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = [];
 
   const updateNoteTitle = (id, newTitle) => {
     const updated = pinnedNotes.map((n) =>
       n.id === id ? { ...n, title: newTitle } : n,
     );
     setPinnedNotes(updated);
-    localStorage.setItem("pinnedNotes", JSON.stringify(updated));
   };
 
   const updateNoteContent = (id, newContent) => {
@@ -831,7 +885,6 @@ function HomeScreen({
       n.id === id ? { ...n, content: newContent } : n,
     );
     setPinnedNotes(updated);
-    localStorage.setItem("pinnedNotes", JSON.stringify(updated));
   };
 
   const updateNoteImage = (id, imageUrl) => {
@@ -839,7 +892,6 @@ function HomeScreen({
       n.id === id ? { ...n, image: imageUrl, hasImage: !!imageUrl } : n,
     );
     setPinnedNotes(updated);
-    localStorage.setItem("pinnedNotes", JSON.stringify(updated));
   };
 
   const updateNoteColor = (id, color) => {
@@ -847,7 +899,6 @@ function HomeScreen({
       n.id === id ? { ...n, color: color } : n,
     );
     setPinnedNotes(updated);
-    localStorage.setItem("pinnedNotes", JSON.stringify(updated));
   };
 
   const handleAddNote = () => {
@@ -864,6 +915,61 @@ function HomeScreen({
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const startRecording = async (noteId) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        const updated = pinnedNotes.map((n) =>
+          n.id === noteId ? { ...n, audioUrl: audioUrl, hasVoice: true } : n,
+        );
+        setPinnedNotes(updated);
+
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingNoteId(noteId);
+    } catch (error) {
+      console.error("Error accessing microphone:", error);
+      alert(
+        lang === "en"
+          ? "Could not access microphone"
+          : "لا يمكن الوصول للميكروفون",
+      );
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      setRecordingNoteId(null);
+    }
+  };
+
+  const deleteAudio = (noteId) => {
+    const updated = pinnedNotes.map((n) =>
+      n.id === noteId ? { ...n, audioUrl: null, hasVoice: false } : n,
+    );
+    setPinnedNotes(updated);
   };
 
   const expandedNote = pinnedNotes.find((n) => n.id === expandedNoteId);
@@ -954,35 +1060,148 @@ function HomeScreen({
 
       <div
         className="main-journal-card glass-style"
-        onClick={() => setScreen("details")}
+        onClick={() => {
+          setTempJournalData({
+            title: journalTitle,
+            image: journalImage,
+            reminder: journalReminder,
+            text: lastEntryText,
+          });
+          setIsEditingJournal(true);
+        }}
       >
         <div className="journal-content">
-          <h3>
-            {currentJournalEntries.length > 0
-              ? t.continueReflection
-              : t.startDay}
+          <div
+            style={{
+              position: "absolute",
+              top: "15px",
+              right: lang === "ar" ? "auto" : "15px",
+              left: lang === "ar" ? "15px" : "auto",
+              opacity: 0.5,
+            }}
+          >
+            <Settings size={18} />
+          </div>
+          <h3 style={{ fontSize: "1.2rem", color: "var(--text-main)" }}>
+            {journalTitle ||
+              (currentJournalEntries.length > 0
+                ? t.continueReflection
+                : t.startDay)}
           </h3>
-          <p>
+          <p style={{ color: "var(--text-dim)" }}>
             {lastEntryText
               ? lastEntryText.substring(0, 40) + "..."
               : t.startDayDesc}
           </p>
-          <div className="illustration" style={{ marginTop: "20px" }}>
-            <svg width="100%" height="80" viewBox="0 0 200 80">
-              <circle cx="100" cy="30" r="22" fill={PALETTE.BEIGE} />
-              <path
-                d="M0 60 Q 50 40, 100 60 T 200 60"
-                fill={PALETTE.GREEN}
-                opacity="0.6"
+
+          {journalImage && (
+            <div
+              style={{
+                marginTop: "15px",
+                borderRadius: "20px",
+                overflow: "hidden",
+                height: "100px",
+              }}
+            >
+              <img
+                src={journalImage}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                alt="Journal"
               />
-              <path d="M0 70 Q 50 50, 100 70 T 200 70" fill={PALETTE.GREEN} />
-            </svg>
-          </div>
+            </div>
+          )}
+
+          {!journalImage && (
+            <div className="illustration" style={{ marginTop: "20px" }}>
+              <svg width="100%" height="80" viewBox="0 0 200 80">
+                <circle cx="100" cy="30" r="22" fill={PALETTE.BEIGE} />
+                <path
+                  d="M0 60 Q 50 40, 100 60 T 200 60"
+                  fill={PALETTE.GREEN}
+                  opacity="0.6"
+                />
+                <path d="M0 70 Q 50 50, 100 70 T 200 70" fill={PALETTE.GREEN} />
+              </svg>
+            </div>
+          )}
         </div>
+
         <div className="journal-side-tab">
           <span>{t.journal}</span>
         </div>
       </div>
+
+      {/* Daily Technique Recommendation */}
+      <div className="section-header">
+        <h2 style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          {t.recommendation || "Daily Recommendation"}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsEditingHabit(true);
+            }}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: PALETTE.GRAY,
+              cursor: "pointer",
+            }}
+          >
+            <Settings size={16} />
+          </button>
+        </h2>
+      </div>
+      <motion.div
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        className="card"
+        onClick={() => {
+          setActiveMeditation(activeHabit);
+        }}
+        style={{
+          background: "linear-gradient(135deg, #2c3e50, #000000)",
+          color: "white",
+          padding: "20px",
+          borderRadius: "32px",
+          display: "flex",
+          alignItems: "center",
+          gap: "20px",
+          cursor: "pointer",
+          border: "1px solid rgba(255,255,255,0.1)",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+          position: "relative",
+        }}
+      >
+        <div
+          style={{
+            width: "50px",
+            height: "50px",
+            borderRadius: "15px",
+            background: "rgba(255,255,255,0.1)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "1.5rem",
+          }}
+        >
+          {activeHabit.icon}
+        </div>
+        <div style={{ flex: 1 }}>
+          <h3 style={{ margin: 0, fontSize: "1.1rem" }}>
+            {activeHabit.title[lang]}
+          </h3>
+          <p style={{ margin: 0, fontSize: "0.8rem", opacity: 0.7 }}>
+            {activeHabit.type[lang]} • {activeHabit.duration}
+          </p>
+        </div>
+        <ChevronLeft
+          size={20}
+          style={{
+            transform: lang === "ar" ? "none" : "rotate(180deg)",
+            opacity: 0.5,
+          }}
+        />
+      </motion.div>
 
       <div className="section-header">
         <h2>{t.quickJournal}</h2>
@@ -1020,16 +1239,16 @@ function HomeScreen({
             whileTap={{ scale: 0.98 }}
           >
             <div className="pinned-badge">
-              <Pin size={14} fill={note.color} />
+              <Pin size={12} fill={note.color} />
             </div>
 
             {note.image && (
               <div
                 style={{
-                  height: "80px",
-                  borderRadius: "15px",
+                  height: "70px",
+                  borderRadius: "12px",
                   overflow: "hidden",
-                  marginBottom: "10px",
+                  marginBottom: "8px",
                 }}
               >
                 <img
@@ -1046,17 +1265,17 @@ function HomeScreen({
               <div className="rich-content-indicators">
                 {note.hasVoice && (
                   <div className="indicator-item active">
-                    <Mic size={14} />
+                    <Mic size={12} />
                   </div>
                 )}
                 {note.hasImage && (
                   <div className="indicator-item active">
-                    <ImageIcon size={14} />
+                    <ImageIcon size={12} />
                   </div>
                 )}
                 {note.hasFile && (
                   <div className="indicator-item active">
-                    <Paperclip size={14} />
+                    <Paperclip size={12} />
                   </div>
                 )}
               </div>
@@ -1084,14 +1303,14 @@ function HomeScreen({
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            gap: "10px",
+            gap: "8px",
             minWidth: "160px",
           }}
         >
           <div
             style={{
-              width: "50px",
-              height: "50px",
+              width: "42px",
+              height: "42px",
               borderRadius: "50%",
               background: "rgba(0,0,0,0.05)",
               display: "flex",
@@ -1100,11 +1319,11 @@ function HomeScreen({
               color: "rgba(0,0,0,0.3)",
             }}
           >
-            <Plus size={24} />
+            <Plus size={20} />
           </div>
           <span
             style={{
-              fontSize: "0.9rem",
+              fontSize: "0.8rem",
               color: "rgba(0,0,0,0.4)",
               fontWeight: "600",
             }}
@@ -1113,6 +1332,267 @@ function HomeScreen({
           </span>
         </motion.div>
       </div>
+
+      <AnimatePresence>
+        {isEditingJournal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="note-overlay"
+            onClick={() => setIsEditingJournal(false)}
+          >
+            <motion.div
+              className="expanded-note-content"
+              onClick={(e) => e.stopPropagation()}
+              initial={{ y: 50 }}
+              animate={{ y: 0 }}
+              exit={{ y: 50 }}
+            >
+              <h2 style={{ marginBottom: "20px" }}>
+                {lang === "en" ? "Daily Highlights" : "أبرز أحداث اليوم"}
+              </h2>
+
+              <input
+                type="text"
+                placeholder={
+                  lang === "en" ? "Dream/Title..." : "عنوان الحلم / القصة..."
+                }
+                value={tempJournalData.title}
+                onChange={(e) =>
+                  setTempJournalData({
+                    ...tempJournalData,
+                    title: e.target.value,
+                  })
+                }
+                style={editInputStyle(lang)}
+              />
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <label
+                  style={{
+                    flex: 1,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    background: "rgba(0,0,0,0.05)",
+                    padding: "12px",
+                    borderRadius: "15px",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  <ImageIcon size={18} />{" "}
+                  {lang === "en" ? "Cover Image" : "صورة الغلاف"}
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () =>
+                          setTempJournalData({
+                            ...tempJournalData,
+                            image: reader.result,
+                          });
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </label>
+                <div style={{ position: "relative", flex: 1 }}>
+                  <input
+                    type="time"
+                    value={tempJournalData.reminder}
+                    onChange={(e) =>
+                      setTempJournalData({
+                        ...tempJournalData,
+                        reminder: e.target.value,
+                      })
+                    }
+                    style={{ ...editInputStyle(lang), paddingRight: "35px" }}
+                  />
+                  <Bell
+                    size={14}
+                    style={{
+                      position: "absolute",
+                      right: "12px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      opacity: 0.5,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {tempJournalData.image && (
+                <div
+                  style={{
+                    position: "relative",
+                    height: "120px",
+                    borderRadius: "15px",
+                    overflow: "hidden",
+                  }}
+                >
+                  <img
+                    src={tempJournalData.image}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
+                  />
+                  <button
+                    onClick={() =>
+                      setTempJournalData({ ...tempJournalData, image: "" })
+                    }
+                    style={{
+                      position: "absolute",
+                      top: "5px",
+                      right: "5px",
+                      background: "rgba(0,0,0,0.5)",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "8px",
+                      padding: "5px",
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
+              <textarea
+                placeholder={t.placeholder}
+                value={tempJournalData.text}
+                onChange={(e) =>
+                  setTempJournalData({
+                    ...tempJournalData,
+                    text: e.target.value,
+                  })
+                }
+                style={{
+                  ...editInputStyle(lang),
+                  minHeight: "120px",
+                  resize: "none",
+                }}
+              />
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  className="btn-primary"
+                  onClick={() => {
+                    saveJournal(selectedDate, {
+                      title: tempJournalData.title,
+                      image: tempJournalData.image,
+                      reminder: tempJournalData.reminder,
+                      entries: tempJournalData.text
+                        ? [
+                            {
+                              id: Date.now(),
+                              text: tempJournalData.text,
+                              time: new Date().toLocaleTimeString(),
+                            },
+                          ]
+                        : currentJournalEntries,
+                    });
+                    setIsEditingJournal(false);
+                  }}
+                >
+                  {t.save}
+                </button>
+                <button
+                  className="btn-secondary"
+                  onClick={() => setIsEditingJournal(false)}
+                  style={{ borderRadius: "50px", padding: "16px" }}
+                >
+                  {t.cancel}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {isEditingHabit && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="note-overlay"
+            onClick={() => setIsEditingHabit(false)}
+          >
+            <motion.div
+              className="expanded-note-content"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2>{lang === "en" ? "Choose Habit" : "اختر عادة"}</h2>
+              <p
+                style={{
+                  fontSize: "0.85rem",
+                  color: PALETTE.GRAY,
+                  marginBottom: "15px",
+                }}
+              >
+                {lang === "en"
+                  ? "Select a habit for today"
+                  : "اختر عادة تود القيام بها اليوم"}
+              </p>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "10px",
+                  maxHeight: "300px",
+                  overflowY: "auto",
+                  padding: "5px",
+                }}
+              >
+                {EXPLORE_ITEMS.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => {
+                      saveDailyHabit(selectedDate, item);
+                      setIsEditingHabit(false);
+                    }}
+                    style={{
+                      padding: "15px",
+                      borderRadius: "20px",
+                      background:
+                        activeHabit.id === item.id
+                          ? PALETTE.ICE
+                          : "rgba(0,0,0,0.03)",
+                      border:
+                        activeHabit.id === item.id
+                          ? `2px solid ${PALETTE.TEAL}`
+                          : "2px solid transparent",
+                      cursor: "pointer",
+                      textAlign: "center",
+                    }}
+                  >
+                    <div style={{ fontSize: "1.5rem", marginBottom: "5px" }}>
+                      {item.icon}
+                    </div>
+                    <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>
+                      {item.title[lang]}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                className="btn-secondary"
+                onClick={() => setIsEditingHabit(false)}
+                style={{ marginTop: "20px", borderRadius: "50px" }}
+              >
+                {t.cancel}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {expandedNoteId && expandedNote && (
@@ -1179,6 +1659,33 @@ function HomeScreen({
                 </div>
               )}
 
+              {expandedNote.audioUrl && (
+                <div
+                  style={{
+                    background: "rgba(0,0,0,0.05)",
+                    borderRadius: "15px",
+                    padding: "12px",
+                    marginBottom: "15px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                  }}
+                >
+                  <audio
+                    controls
+                    src={expandedNote.audioUrl}
+                    style={{ flex: 1, height: "35px" }}
+                  />
+                  <button
+                    className="icon-btn"
+                    style={{ color: "#ff4757" }}
+                    onClick={() => deleteAudio(expandedNote.id)}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              )}
+
               <textarea
                 className="note-edit-text"
                 value={expandedNote.content}
@@ -1230,7 +1737,26 @@ function HomeScreen({
                       onChange={(e) => handleImageUpload(expandedNote.id, e)}
                     />
                   </label>
-                  <button className="icon-btn">
+                  <button
+                    className="icon-btn"
+                    onClick={() => {
+                      if (isRecording && recordingNoteId === expandedNote.id) {
+                        stopRecording();
+                      } else {
+                        startRecording(expandedNote.id);
+                      }
+                    }}
+                    style={{
+                      background:
+                        isRecording && recordingNoteId === expandedNote.id
+                          ? "#ff4757"
+                          : "",
+                      color:
+                        isRecording && recordingNoteId === expandedNote.id
+                          ? "white"
+                          : "",
+                    }}
+                  >
                     <Mic size={20} />
                   </button>
                   <button
@@ -1276,7 +1802,20 @@ function JournalDetailsScreen({
   t,
   user,
 }) {
-  const [entries, setEntries] = useState(journals[selectedDate] || []);
+  const dayData = journals[selectedDate] || {};
+  const [entries, setEntries] = useState(
+    Array.isArray(dayData) ? dayData : dayData.entries || [],
+  );
+  const [journalTitle, setJournalTitle] = useState(
+    !Array.isArray(dayData) ? dayData.title || "" : "",
+  );
+  const [journalImage, setJournalImage] = useState(
+    !Array.isArray(dayData) ? dayData.image || "" : "",
+  );
+  const [reminder, setReminder] = useState(
+    !Array.isArray(dayData) ? dayData.reminder || "" : "",
+  );
+
   const [newEntry, setNewEntry] = useState("");
   const [todos, setTodos] = useState(todoLists[selectedDate] || []);
   const [newTodo, setNewTodo] = useState("");
@@ -1287,7 +1826,12 @@ function JournalDetailsScreen({
   );
 
   const handleSave = () => {
-    saveJournal(selectedDate, entries);
+    saveJournal(selectedDate, {
+      entries,
+      title: journalTitle,
+      image: journalImage,
+      reminder: reminder,
+    });
     saveTodos(selectedDate, todos);
     setScreen("home");
   };
@@ -1435,6 +1979,138 @@ function JournalDetailsScreen({
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "20px" }}>
+        {/* Journal Metadata Section */}
+        <div
+          className="card"
+          style={{
+            padding: "20px",
+            marginBottom: "25px",
+            borderRadius: "32px",
+            background: "white",
+          }}
+        >
+          <input
+            type="text"
+            placeholder={
+              lang === "en" ? "Dream/Title..." : "عنوان الحلم / القصة..."
+            }
+            value={journalTitle}
+            onChange={(e) => setJournalTitle(e.target.value)}
+            style={{
+              ...editInputStyle(lang),
+              fontSize: "1.2rem",
+              fontWeight: 700,
+              background: "transparent",
+              borderBottom: "2px solid #eee",
+              borderRadius: 0,
+              paddingLeft: 0,
+              paddingRight: 0,
+              marginBottom: "15px",
+            }}
+          />
+
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              alignItems: "center",
+              marginBottom: "15px",
+            }}
+          >
+            <label
+              style={{
+                flex: 1,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                background: "#f8f9fa",
+                padding: "10px 15px",
+                borderRadius: "15px",
+                fontSize: "0.85rem",
+                color: "#666",
+              }}
+            >
+              <ImageIcon size={18} />
+              {lang === "en" ? "Add Cover Image" : "إضافة صورة غلاف"}
+              <input
+                type="file"
+                hidden
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => setJournalImage(reader.result);
+                    reader.readAsDataURL(file);
+                  }
+                }}
+              />
+            </label>
+
+            <div style={{ position: "relative", flex: 1 }}>
+              <input
+                type="time"
+                value={reminder}
+                onChange={(e) => setReminder(e.target.value)}
+                style={{
+                  ...editInputStyle(lang),
+                  padding: "8px 12px",
+                  background: "#f8f9fa",
+                  fontSize: "0.85rem",
+                }}
+              />
+              <Bell
+                size={14}
+                style={{
+                  position: "absolute",
+                  right: lang === "ar" ? "auto" : "12px",
+                  left: lang === "ar" ? "12px" : "auto",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  opacity: 0.5,
+                }}
+              />
+            </div>
+          </div>
+
+          {journalImage && (
+            <div
+              style={{
+                position: "relative",
+                borderRadius: "20px",
+                overflow: "hidden",
+                height: "150px",
+              }}
+            >
+              <img
+                src={journalImage}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                alt="Cover"
+              />
+              <button
+                onClick={() => setJournalImage("")}
+                style={{
+                  position: "absolute",
+                  top: "10px",
+                  right: "10px",
+                  width: "30px",
+                  height: "30px",
+                  borderRadius: "10px",
+                  background: "rgba(0,0,0,0.5)",
+                  color: "white",
+                  border: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Todos Section */}
         <div style={{ marginBottom: "25px" }}>
           <div
@@ -1842,7 +2518,10 @@ function ExploreScreen({ t, lang, activeMeditation, setActiveMeditation }) {
     (item) => selectedCategory === "all" || item.category === selectedCategory,
   );
 
-  const featuredItem = EXPLORE_ITEMS.find((item) => item.featured);
+  // Dynamic Featured Item
+  const dayOfMonth = new Date(selectedDate).getDate();
+  const featuredItem =
+    EXPLORE_ITEMS[dayOfMonth % EXPLORE_ITEMS.length] || EXPLORE_ITEMS[0];
 
   return (
     <div
@@ -2415,6 +3094,7 @@ function ProfileScreen({
 const ProfileMenuItem = ({ icon, label, children, onClick }) => (
   <div
     onClick={onClick}
+    className="profile-menu-item"
     style={{
       padding: "18px 20px",
       backgroundColor: "white",
@@ -2851,59 +3531,111 @@ function NotificationScreen({
     setNotifications(notifications.map((n) => ({ ...n, read: true })));
   };
 
+  const getNotificationIcon = (type) => {
+    switch (type) {
+      case "system":
+        return {
+          icon: <Settings size={20} />,
+          bg: "#E3EEFF",
+          color: "#4A90E2",
+        };
+      case "social":
+        return { icon: <Users size={20} />, bg: "#E8F5E9", color: "#4CAF50" };
+      case "milestone":
+        return { icon: <Award size={20} />, bg: "#FFF9C4", color: "#FBC02D" };
+      case "reminder":
+        return { icon: <Bell size={20} />, bg: "#FFEBEE", color: "#EF5350" };
+      default:
+        return { icon: <Bell size={20} />, bg: "#F5F5F5", color: "#9E9E9E" };
+    }
+  };
+
   return (
     <div className="notifications-screen fade-in">
-      <header className="header" style={{ marginBottom: "20px" }}>
+      <header
+        className="header"
+        style={{
+          marginBottom: "25px",
+          display: "flex",
+          alignItems: "center",
+          gap: "15px",
+        }}
+      >
         <button className="nav-icon-btn" onClick={() => setScreen("home")}>
           <ChevronLeft
             size={24}
             style={{ transform: lang === "ar" ? "rotate(180deg)" : "none" }}
           />
         </button>
-        <h1 style={{ flex: 1, textAlign: "center", margin: 0 }}>
+        <h1 style={{ flex: 1, margin: 0, fontSize: "1.5rem" }}>
           {t.notificationsCenter}
         </h1>
-        <button className="nav-icon-btn" onClick={markAllRead}>
-          <CheckCircle2 size={22} color={PALETTE.TEAL} />
-        </button>
+        {notifications.length > 0 && (
+          <button className="nav-icon-btn" onClick={markAllRead}>
+            <CheckCircle2 size={22} color={PALETTE.TEAL} />
+          </button>
+        )}
       </header>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-        {notifications.map((n) => (
-          <div
-            key={n.id}
-            className="card"
-            style={{
-              padding: "20px",
-              marginBottom: 0,
-              opacity: n.read ? 0.7 : 1,
-              borderLeft: n.read ? "none" : `4px solid ${PALETTE.TEAL}`,
-              borderRadius: "24px",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-              }}
-            >
-              <p
+      {notifications.length === 0 ? (
+        <div className="empty-state">
+          <Bell size={48} style={{ opacity: 0.2, marginBottom: "15px" }} />
+          <p>
+            {lang === "en" ? "No new notifications" : "لا توجد تنبيهات جديدة"}
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
+          {notifications.map((n) => {
+            const style = getNotificationIcon(n.type);
+            return (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                key={n.id}
+                className="notification-card"
                 style={{
-                  margin: 0,
-                  fontWeight: n.read ? 400 : 700,
-                  fontSize: "0.95rem",
+                  opacity: n.read ? 0.8 : 1,
+                  cursor: "pointer",
+                }}
+                onClick={() => {
+                  const updated = notifications.map((notif) =>
+                    notif.id === n.id ? { ...notif, read: true } : notif,
+                  );
+                  setNotifications(updated);
                 }}
               >
-                {n.text}
-              </p>
-              <span style={{ fontSize: "0.7rem", color: PALETTE.GRAY }}>
-                {n.time}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
+                {!n.read && <div className="unread-indicator" />}
+
+                <div
+                  className="notification-icon-wrapper"
+                  style={{
+                    backgroundColor: style.bg,
+                    color: style.color,
+                  }}
+                >
+                  {style.icon}
+                </div>
+
+                <div className="notification-content">
+                  <p
+                    style={{
+                      margin: 0,
+                      fontWeight: n.read ? 500 : 700,
+                      fontSize: "0.95rem",
+                      lineHeight: "1.4",
+                      color: "var(--text-main)",
+                    }}
+                  >
+                    {n.text}
+                  </p>
+                  <div className="notification-time">{n.time}</div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
