@@ -2683,10 +2683,10 @@ function JournalDetailsScreen({
       </div>
 
       <div
+        className="bottom-action-bar"
         style={{
           padding: "20px 0",
           borderTop: "1px solid #eee",
-          backgroundColor: "#fff",
         }}
       >
         <textarea

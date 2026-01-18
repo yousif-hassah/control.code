@@ -112,6 +112,36 @@
   color: #777777 !important;
 }
 
+/* Journey Section Theme Overrides */
+.iphone-frame.theme-dark .details-screen {
+  --text-main: #b0b8c4 !important; /* Light grey for what was navy */
+  background-color: #000000 !important;
+}
+
+.iphone-frame.theme-dark .details-screen .top-nav-bar,
+.iphone-frame.theme-dark .details-screen .top-nav-bar h2,
+.iphone-frame.theme-dark .details-screen .nav-icon-btn,
+.iphone-frame.theme-dark .details-screen .btn-accent,
+.iphone-frame.theme-dark .details-screen .nav-icon-btn svg {
+  color: #333333 !important; /* Dark grey for what was white */
+}
+
+.iphone-frame.theme-dark .details-screen .card {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.iphone-frame.theme-dark .details-screen .bottom-action-bar {
+  background-color: #000000 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.iphone-frame.theme-dark .details-screen textarea {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  color: #b0b8c4 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
 .iphone-frame.theme-dark .day-name {
   color: #888888;
 }
