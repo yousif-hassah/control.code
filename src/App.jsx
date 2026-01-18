@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import emailjs from "@emailjs/browser";
 import {
   Home,
   Compass,
@@ -84,7 +85,7 @@ const TRANSLATIONS = {
     settings: "Settings",
     notifications: "Notifications",
     language: "Language",
-    searchPlaceholder: "Search meditations...",
+    searchPlaceholder: "Search meditations & techniques...",
     popularTopics: "Popular Topics",
     dailyQuote: "Quote of the Day",
     addSocial: "Add Social Account",
@@ -132,6 +133,17 @@ const TRANSLATIONS = {
     evening: "Evening",
     all: "All",
     recommendation: "Daily Recommendation",
+    loginTitle: "Welcome to ZenFlow",
+    loginDesc: "Enter your details to start your journey",
+    nameLabel: "Full Name",
+    emailLabel: "Email Address",
+    phoneLabel: "Phone Number",
+    sendCode: "Send Verification Code",
+    verifyCode: "Verify & Start",
+    enterCode: "Enter 6-digit code",
+    codeSentEmail: "A verification code has been sent to your email.",
+    invalidCode: "Invalid code. Please try again.",
+    getStarted: "Get Started",
   },
   ar: {
     hi: "مرحباً",
@@ -178,7 +190,7 @@ const TRANSLATIONS = {
     settings: "الإعدادات",
     notifications: "التنبيهات",
     language: "اللغة",
-    searchPlaceholder: "بحث عن تأملات...",
+    searchPlaceholder: "بحث عن تأملات وتقنيات...",
     popularTopics: "مواضيع شائعة",
     dailyQuote: "حكمة اليوم",
     email: "البريد الإلكتروني",
@@ -225,6 +237,17 @@ const TRANSLATIONS = {
     evening: "المساء",
     all: "الكل",
     recommendation: "توصية اليوم",
+    loginTitle: "مرحباً بك في ZenFlow",
+    loginDesc: "أدخل بياناتك لتبدأ رحلتك معنا",
+    nameLabel: "الاسم الكامل",
+    emailLabel: "البريد الإلكتروني",
+    phoneLabel: "رقم الهاتف",
+    sendCode: "إرسال كود التحقق",
+    verifyCode: "تحقق وابدأ",
+    enterCode: "أدخل الكود المكون من 6 أرقام",
+    codeSentEmail: "تم إرسال كود التحقق لجهازك.",
+    invalidCode: "الكود غير صحيح. حاول مرة أخرى.",
+    getStarted: "ابدأ الآن",
   },
 };
 
@@ -317,6 +340,33 @@ const EXPLORE_ITEMS = [
     category: "anxiety",
     icon: "🌲",
   },
+  {
+    id: 7,
+    title: { en: "Deep Sleep", ar: "نوم عميق" },
+    type: { en: "Meditation", ar: "تأمل اليوم" },
+    duration: "15 min",
+    color: "#EBF5FB",
+    category: "sleep",
+    icon: "😴",
+  },
+  {
+    id: 8,
+    title: { en: "Mountain Air", ar: "هواء الجبل" },
+    type: { en: "Breathing", ar: "تنفس" },
+    duration: "10 min",
+    color: "#FEF9E7",
+    category: "morning",
+    icon: "🏔️",
+  },
+  {
+    id: 9,
+    title: { en: "Summer Meadow", ar: "مرج الصيف" },
+    type: { en: "Soundscape", ar: "موسيقى طبيعية" },
+    duration: "30 min",
+    color: "#D5F5E3",
+    category: "relax",
+    icon: "🌺",
+  },
 ];
 
 const formatDate = (date) => date.toISOString().split("T")[0];
@@ -341,6 +391,9 @@ const generateCalendarDays = () => {
 const CALENDAR_DAYS = generateCalendarDays();
 
 export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    return localStorage.getItem("isLoggedIn") === "true";
+  });
   const [screen, setScreen] = useState("home");
   const [lang, setLang] = useState(() => {
     const saved = localStorage.getItem("lang");
@@ -364,9 +417,9 @@ export default function App() {
         { id: 2, title: "7 Day Streak", icon: "🔥", date: "2024-01-15" },
       ],
     };
-    const saved = localStorage.getItem("user");
-    if (!saved) return defaultUser;
     try {
+      const saved = localStorage.getItem("user");
+      if (!saved) return defaultUser;
       const parsed = JSON.parse(saved);
       return {
         ...defaultUser,
@@ -375,13 +428,19 @@ export default function App() {
         achievements: parsed.achievements || defaultUser.achievements,
       };
     } catch (e) {
+      console.error("Error parsing user from localStorage:", e);
       return defaultUser;
     }
   });
 
   const [todoLists, setTodoLists] = useState(() => {
-    const saved = localStorage.getItem("todoLists");
-    return saved ? JSON.parse(saved) : {};
+    try {
+      const saved = localStorage.getItem("todoLists");
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      console.error("Error parsing todoLists:", e);
+      return {};
+    }
   });
   const [notifications, setNotifications] = useState([
     {
@@ -414,6 +473,27 @@ export default function App() {
     },
   ]);
   const [activeMeditation, setActiveMeditation] = useState(null);
+  const [meditationHistory, setMeditationHistory] = useState(() => {
+    try {
+      const saved = localStorage.getItem("meditationHistory");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Error parsing meditationHistory:", e);
+      return [];
+    }
+  });
+
+  const recordMeditationCompletion = (item) => {
+    const newEntry = {
+      id: Date.now(),
+      title: item.title,
+      date: formatDate(new Date()),
+      duration: parseInt(item.duration) || 0,
+    };
+    const updated = [newEntry, ...meditationHistory];
+    setMeditationHistory(updated);
+    localStorage.setItem("meditationHistory", JSON.stringify(updated));
+  };
   const [groups, setGroups] = useState(() => {
     const saved = localStorage.getItem("groups");
     const defaultTasks = [
@@ -454,20 +534,25 @@ export default function App() {
   const [activeGroupId, setActiveGroupId] = useState("g1");
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
   const [journals, setJournals] = useState(() => {
-    const saved = localStorage.getItem("journals");
-    if (!saved) return {};
-    const parsed = JSON.parse(saved);
-    const migrated = {};
-    Object.keys(parsed).forEach((date) => {
-      if (typeof parsed[date] === "string") {
-        migrated[date] = [
-          { id: Date.now(), text: parsed[date], time: "Legacy" },
-        ];
-      } else {
-        migrated[date] = parsed[date];
-      }
-    });
-    return migrated;
+    try {
+      const saved = localStorage.getItem("journals");
+      if (!saved) return {};
+      const parsed = JSON.parse(saved);
+      const migrated = {};
+      Object.keys(parsed).forEach((date) => {
+        if (typeof parsed[date] === "string") {
+          migrated[date] = [
+            { id: Date.now(), text: parsed[date], time: "Legacy" },
+          ];
+        } else {
+          migrated[date] = parsed[date];
+        }
+      });
+      return migrated;
+    } catch (e) {
+      console.error("Error parsing journals:", e);
+      return {};
+    }
   });
 
   const [allPinnedNotes, setAllPinnedNotes] = useState(() => {
@@ -607,8 +692,13 @@ export default function App() {
   };
 
   const [dailyHabits, setDailyHabits] = useState(() => {
-    const saved = localStorage.getItem("dailyHabits");
-    return saved ? JSON.parse(saved) : {};
+    try {
+      const saved = localStorage.getItem("dailyHabits");
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      console.error("Error parsing dailyHabits:", e);
+      return {};
+    }
   });
 
   const saveDailyHabit = (date, habit) => {
@@ -720,7 +810,14 @@ export default function App() {
           />
         );
       case "analytics":
-        return <AnalyticsScreen {...commonProps} />;
+        return (
+          <AnalyticsScreen
+            {...commonProps}
+            journals={journals}
+            todoLists={todoLists}
+            meditationHistory={meditationHistory}
+          />
+        );
       case "explore":
         return (
           <ExploreScreen
@@ -749,6 +846,29 @@ export default function App() {
     }
   };
 
+  const handleLogin = (userData) => {
+    const newUser = {
+      ...user,
+      name: userData.name,
+      email: userData.email,
+      phone: userData.phone,
+    };
+    setUser(newUser);
+    setIsLoggedIn(true);
+    localStorage.setItem("user", JSON.stringify(newUser));
+    localStorage.setItem("isLoggedIn", "true");
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <div
+        className={`iphone-frame ${lang === "ar" ? "rtl" : ""} theme-${theme}`}
+      >
+        <AuthScreen t={t} lang={lang} onLogin={handleLogin} />
+      </div>
+    );
+  }
+
   return (
     <div
       className={`iphone-frame ${lang === "ar" ? "rtl" : ""} theme-${theme}`}
@@ -773,6 +893,7 @@ export default function App() {
           lang={lang}
           item={activeMeditation}
           onClose={() => setActiveMeditation(null)}
+          onComplete={() => recordMeditationCompletion(activeMeditation)}
         />
       )}
 
@@ -818,6 +939,392 @@ export default function App() {
           <span>{t.profile}</span>
         </button>
       </nav>
+    </div>
+  );
+}
+
+function AuthScreen({ t, lang, onLogin }) {
+  const [step, setStep] = useState(1);
+  const [formData, setFormData] = useState({ name: "", email: "", phone: "" });
+  const [code, setCode] = useState("");
+  const [generatedOtp, setGeneratedOtp] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSendCode = async (e) => {
+    e.preventDefault();
+    if (!formData.name || !formData.email || !formData.phone) return;
+
+    setLoading(true);
+    setError("");
+
+    // 1. Generate real 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    setGeneratedOtp(otp);
+
+    try {
+      const SERVICE_ID = "yousifhassan";
+      const TEMPLATE_ID = "template_89uvhw3"; // New Template ID provided
+      const PUBLIC_KEY = "WLsGw6u5xkDBazIXW";
+
+      const templateParams = {
+        name: formData.name,
+        user_email: formData.email,
+        message: otp,
+      };
+
+      console.log("Sending with ID:", TEMPLATE_ID);
+
+      const result = await emailjs.send(
+        SERVICE_ID,
+        TEMPLATE_ID,
+        templateParams,
+        PUBLIC_KEY,
+      );
+
+      if (result.status === 200) {
+        console.log("SUCCESS!", result.status, result.text);
+        setStep(2);
+      }
+    } catch (err) {
+      console.error("FAILED...", err);
+      // Detailed error for debugging
+      const errorDetail = err.text || err.message || JSON.stringify(err);
+      alert(
+        lang === "en"
+          ? `Error: ${errorDetail}. Please check your EmailJS dashboard.`
+          : `خطأ: ${errorDetail}. يرجى التأكد من لوحة تحكم EmailJS.`,
+      );
+
+      setError(lang === "en" ? "Failed to send code." : "فشل إرسال الكود.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerify = (e) => {
+    e.preventDefault();
+    if (code === generatedOtp) {
+      onLogin(formData);
+    } else {
+      setError(t.invalidCode);
+      // Subtle shake or bounce could be added here
+    }
+  };
+
+  return (
+    <div
+      className="auth-screen fade-in"
+      style={{
+        padding: "40px 24px",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+      }}
+    >
+      <div style={{ textAlign: "center", marginBottom: "40px" }}>
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          style={{
+            width: "80px",
+            height: "80px",
+            background: "#D35400",
+            borderRadius: "28px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 20px",
+            boxShadow: "0 10px 25px rgba(211, 84, 0, 0.3)",
+          }}
+        >
+          <Lock color="white" size={36} />
+        </motion.div>
+        <h1
+          style={{
+            fontSize: "2.2rem",
+            fontWeight: 800,
+            color: "var(--text-main)",
+            marginBottom: "12px",
+            letterSpacing: "-1px",
+          }}
+        >
+          {t.loginTitle}
+        </h1>
+        <p
+          style={{
+            color: "var(--text-dim)",
+            fontSize: "1rem",
+            lineHeight: "1.5",
+          }}
+        >
+          {t.loginDesc}
+        </p>
+      </div>
+
+      <AnimatePresence mode="wait">
+        {step === 1 ? (
+          <motion.form
+            key="step1"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            onSubmit={handleSendCode}
+            style={{ display: "flex", flexDirection: "column", gap: "20px" }}
+          >
+            <div className="input-group">
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  color: "var(--text-dim)",
+                  marginBottom: "8px",
+                  paddingLeft: "5px",
+                }}
+              >
+                {t.nameLabel}
+              </label>
+              <input
+                required
+                type="text"
+                placeholder="Yousif Hassan"
+                value={formData.name}
+                onChange={(e) =>
+                  setFormData({ ...formData, name: e.target.value })
+                }
+                style={{
+                  ...editInputStyle(lang),
+                  backgroundColor: "var(--card-bg, white)",
+                  boxShadow: "var(--shadow-soft)",
+                }}
+              />
+            </div>
+            <div className="input-group">
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  color: "var(--text-dim)",
+                  marginBottom: "8px",
+                  paddingLeft: "5px",
+                }}
+              >
+                {t.emailLabel}
+              </label>
+              <input
+                required
+                type="email"
+                placeholder="example@gmail.com"
+                value={formData.email}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
+                style={{
+                  ...editInputStyle(lang),
+                  backgroundColor: "var(--card-bg, white)",
+                  boxShadow: "var(--shadow-soft)",
+                }}
+              />
+            </div>
+            <div className="input-group">
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  color: "var(--text-dim)",
+                  marginBottom: "8px",
+                  paddingLeft: "5px",
+                }}
+              >
+                {t.phoneLabel}
+              </label>
+              <input
+                required
+                type="tel"
+                placeholder="+964 7XX XXX XXXX"
+                value={formData.phone}
+                onChange={(e) =>
+                  setFormData({ ...formData, phone: e.target.value })
+                }
+                style={{
+                  ...editInputStyle(lang),
+                  backgroundColor: "var(--card-bg, white)",
+                  boxShadow: "var(--shadow-soft)",
+                }}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="primary-btn"
+              style={{
+                padding: "18px",
+                borderRadius: "20px",
+                border: "none",
+                background: "#D35400",
+                color: "white",
+                fontWeight: 700,
+                fontSize: "1.1rem",
+                marginTop: "10px",
+                cursor: "pointer",
+                boxShadow: "0 8px 20px rgba(211, 84, 0, 0.25)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              }}
+            >
+              {loading ? (
+                <div
+                  className="spinner"
+                  style={{
+                    width: "24px",
+                    height: "24px",
+                    border: "3px solid rgba(255,255,255,0.3)",
+                    borderTopColor: "white",
+                    borderRadius: "50%",
+                    animation: "auth-spin 0.8s linear infinite",
+                  }}
+                />
+              ) : (
+                t.sendCode
+              )}
+            </button>
+          </motion.form>
+        ) : (
+          <motion.form
+            key="step2"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            onSubmit={handleVerify}
+            style={{ display: "flex", flexDirection: "column", gap: "25px" }}
+          >
+            <div
+              style={{
+                textAlign: "center",
+                backgroundColor: "rgba(211, 84, 0, 0.08)",
+                padding: "20px",
+                borderRadius: "24px",
+                color: "#D35400",
+                fontSize: "0.95rem",
+                fontWeight: 600,
+                border: "1px dashed rgba(211, 84, 0, 0.2)",
+              }}
+            >
+              {t.codeSentEmail}
+            </div>
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  color: "var(--text-dim)",
+                  marginBottom: "12px",
+                  textAlign: "center",
+                }}
+              >
+                {t.enterCode}
+              </label>
+              <input
+                required
+                maxLength={6}
+                autoFocus
+                type="text"
+                placeholder="000000"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                style={{
+                  ...editInputStyle(lang),
+                  backgroundColor: "var(--card-bg, white)",
+                  letterSpacing: "12px",
+                  textAlign: "center",
+                  fontSize: "1.8rem",
+                  fontWeight: 800,
+                  height: "70px",
+                  color: "#D35400",
+                }}
+              />
+            </div>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                style={{
+                  color: "#E63946",
+                  fontSize: "0.85rem",
+                  textAlign: "center",
+                  fontWeight: 600,
+                  marginTop: "-15px",
+                }}
+              >
+                {error}
+              </motion.div>
+            )}
+            <button
+              type="submit"
+              className="primary-btn"
+              style={{
+                padding: "18px",
+                borderRadius: "20px",
+                border: "none",
+                background: "#D35400",
+                color: "white",
+                fontWeight: 700,
+                fontSize: "1.1rem",
+                cursor: "pointer",
+                boxShadow: "0 8px 20px rgba(211, 84, 0, 0.25)",
+              }}
+            >
+              {t.verifyCode}
+            </button>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-dim)",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontSize: "0.9rem",
+                  textDecoration: "underline",
+                }}
+              >
+                {lang === "en" ? "Edit Details" : "تعديل البيانات"}
+              </button>
+              <button
+                type="button"
+                onClick={handleSendCode}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#D35400",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontSize: "0.9rem",
+                }}
+              >
+                {lang === "en" ? "Resend Code" : "إعادة إرسال"}
+              </button>
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
+      <style>{`
+        @keyframes auth-spin {
+          to { transform: rotate(360deg); }
+        }
+        .primary-btn:active {
+          transform: scale(0.96);
+        }
+      `}</style>
     </div>
   );
 }
@@ -990,10 +1497,28 @@ function HomeScreen({
   return (
     <div className="home-screen">
       <header className="header">
-        <div>
-          <h1 style={{ fontSize: "28px", color: "var(--text-main)" }}>
-            {t.hi}, {user.name}
+        <div style={{ padding: "5px 0" }}>
+          <h1
+            style={{
+              fontSize: "32px",
+              fontWeight: 900,
+              color: "var(--text-main)",
+              margin: 0,
+              letterSpacing: "-0.5px",
+            }}
+          >
+            {user.name && user.name.trim().split(/\s+/)[0]}
           </h1>
+          <p
+            style={{
+              fontSize: "0.95rem",
+              color: "var(--text-dim)",
+              margin: "2px 0 0 0",
+              fontWeight: 500,
+            }}
+          >
+            {t.startDayDesc}
+          </p>
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           <button className="lang-toggle" onClick={toggleLang}>
@@ -1979,138 +2504,6 @@ function JournalDetailsScreen({
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "20px" }}>
-        {/* Journal Metadata Section */}
-        <div
-          className="card"
-          style={{
-            padding: "20px",
-            marginBottom: "25px",
-            borderRadius: "32px",
-            background: "white",
-          }}
-        >
-          <input
-            type="text"
-            placeholder={
-              lang === "en" ? "Dream/Title..." : "عنوان الحلم / القصة..."
-            }
-            value={journalTitle}
-            onChange={(e) => setJournalTitle(e.target.value)}
-            style={{
-              ...editInputStyle(lang),
-              fontSize: "1.2rem",
-              fontWeight: 700,
-              background: "transparent",
-              borderBottom: "2px solid #eee",
-              borderRadius: 0,
-              paddingLeft: 0,
-              paddingRight: 0,
-              marginBottom: "15px",
-            }}
-          />
-
-          <div
-            style={{
-              display: "flex",
-              gap: "10px",
-              alignItems: "center",
-              marginBottom: "15px",
-            }}
-          >
-            <label
-              style={{
-                flex: 1,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                background: "#f8f9fa",
-                padding: "10px 15px",
-                borderRadius: "15px",
-                fontSize: "0.85rem",
-                color: "#666",
-              }}
-            >
-              <ImageIcon size={18} />
-              {lang === "en" ? "Add Cover Image" : "إضافة صورة غلاف"}
-              <input
-                type="file"
-                hidden
-                accept="image/*"
-                onChange={(e) => {
-                  const file = e.target.files[0];
-                  if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => setJournalImage(reader.result);
-                    reader.readAsDataURL(file);
-                  }
-                }}
-              />
-            </label>
-
-            <div style={{ position: "relative", flex: 1 }}>
-              <input
-                type="time"
-                value={reminder}
-                onChange={(e) => setReminder(e.target.value)}
-                style={{
-                  ...editInputStyle(lang),
-                  padding: "8px 12px",
-                  background: "#f8f9fa",
-                  fontSize: "0.85rem",
-                }}
-              />
-              <Bell
-                size={14}
-                style={{
-                  position: "absolute",
-                  right: lang === "ar" ? "auto" : "12px",
-                  left: lang === "ar" ? "12px" : "auto",
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  opacity: 0.5,
-                }}
-              />
-            </div>
-          </div>
-
-          {journalImage && (
-            <div
-              style={{
-                position: "relative",
-                borderRadius: "20px",
-                overflow: "hidden",
-                height: "150px",
-              }}
-            >
-              <img
-                src={journalImage}
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                alt="Cover"
-              />
-              <button
-                onClick={() => setJournalImage("")}
-                style={{
-                  position: "absolute",
-                  top: "10px",
-                  right: "10px",
-                  width: "30px",
-                  height: "30px",
-                  borderRadius: "10px",
-                  background: "rgba(0,0,0,0.5)",
-                  color: "white",
-                  border: "none",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
-          )}
-        </div>
-
         {/* Todos Section */}
         <div style={{ marginBottom: "25px" }}>
           <div
@@ -2503,48 +2896,95 @@ function SharedTasksScreen({
   );
 }
 
-function ExploreScreen({ t, lang, activeMeditation, setActiveMeditation }) {
+function ExploreScreen({
+  t,
+  lang,
+  activeMeditation,
+  setActiveMeditation,
+  selectedDate,
+}) {
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+
   const categories = [
     { id: "all", label: t.all, icon: "✨" },
-    { id: "sleep", label: t.sleep, icon: "🌙" },
-    { id: "focus", label: t.focus, icon: "🎯" },
     { id: "calm", label: t.calm, icon: "🧘" },
+    { id: "focus", label: t.focus, icon: "🎯" },
+    { id: "sleep", label: t.sleep, icon: "🌙" },
     { id: "morning", label: t.morning, icon: "☀️" },
     { id: "anxiety", label: t.anxiety, icon: "🌿" },
+    { id: "relax", label: lang === "en" ? "Relax" : "استرخاء", icon: "🌊" },
   ];
 
-  const filteredItems = EXPLORE_ITEMS.filter(
-    (item) => selectedCategory === "all" || item.category === selectedCategory,
-  );
+  const filteredItems = EXPLORE_ITEMS.filter((item) => {
+    const matchesCategory =
+      selectedCategory === "all" || item.category === selectedCategory;
+    const matchesSearch =
+      item.title[lang].toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.type[lang].toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
 
-  // Dynamic Featured Item
-  const dayOfMonth = new Date(selectedDate).getDate();
+  const dayOfMonth = new Date(selectedDate).getDate() || 1;
   const featuredItem =
     EXPLORE_ITEMS[dayOfMonth % EXPLORE_ITEMS.length] || EXPLORE_ITEMS[0];
 
   return (
     <div
-      className="explore-screen"
-      style={{ height: "100%", overflowY: "auto" }}
+      className="explore-screen fade-in"
+      style={{ height: "100%", overflowY: "auto", paddingBottom: "100px" }}
     >
-      <header className="header" style={{ marginBottom: "20px" }}>
-        <h1 style={{ fontSize: "2rem", fontWeight: 800 }}>{t.explore}</h1>
-        <button className="nav-icon-btn">
-          <Search size={22} />
-        </button>
+      <header
+        className="header"
+        style={{
+          marginBottom: "25px",
+          display: "flex",
+          alignItems: "center",
+          gap: "15px",
+        }}
+      >
+        <h1 style={{ fontSize: "2.2rem", fontWeight: 800, flex: 1, margin: 0 }}>
+          {t.explore}
+        </h1>
+        <div style={{ position: "relative", flex: 2 }}>
+          <input
+            type="text"
+            placeholder={t.searchPlaceholder || "Search..."}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              ...editInputStyle(lang),
+              paddingLeft: lang === "ar" ? "12px" : "40px",
+              paddingRight: lang === "ar" ? "40px" : "12px",
+              backgroundColor: "var(--card-bg, rgba(255,255,255,0.05))",
+            }}
+          />
+          <Search
+            size={18}
+            style={{
+              position: "absolute",
+              left: lang === "ar" ? "auto" : "12px",
+              right: lang === "ar" ? "12px" : "auto",
+              top: "50%",
+              transform: "translateY(-50%)",
+              opacity: 0.5,
+            }}
+          />
+        </div>
       </header>
 
-      {/* Hero Recommendation */}
-      {featuredItem && (
-        <div
+      {/* Featured Recommendation */}
+      {!searchQuery && featuredItem && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
           className="hero-card"
           onClick={() => setActiveMeditation(featuredItem)}
           style={{
             position: "relative",
-            height: "180px",
+            height: "190px",
             borderRadius: "32px",
-            background: "linear-gradient(135deg, #D35400, #E67E22)",
+            background: "linear-gradient(135deg, #FF6B6B, #D35400)",
             padding: "24px",
             color: "white",
             marginBottom: "30px",
@@ -2553,63 +2993,63 @@ function ExploreScreen({ t, lang, activeMeditation, setActiveMeditation }) {
             justifyContent: "flex-end",
             cursor: "pointer",
             overflow: "hidden",
-            boxShadow: "0 15px 35px rgba(211, 84, 0, 0.2)",
+            boxShadow: "0 15px 35px rgba(211, 84, 0, 0.25)",
           }}
         >
           <div
             style={{
               position: "absolute",
               top: "-20px",
-              right: lang === "ar" ? "auto" : "-20px",
-              left: lang === "ar" ? "-20px" : "auto",
-              fontSize: "120px",
-              opacity: 0.2,
+              right: lang === "ar" ? "auto" : "-10px",
+              left: lang === "ar" ? "-10px" : "auto",
+              fontSize: "140px",
+              opacity: 0.15,
             }}
           >
             {featuredItem.icon}
           </div>
           <span
             style={{
-              fontSize: "0.8rem",
+              fontSize: "0.75rem",
               textTransform: "uppercase",
-              letterSpacing: "1px",
+              letterSpacing: "1.5px",
               opacity: 0.9,
-              fontWeight: 600,
+              fontWeight: 700,
             }}
           >
             {t.recommendation}
           </span>
-          <h2 style={{ fontSize: "1.6rem", margin: "5px 0", fontWeight: 800 }}>
+          <h2 style={{ fontSize: "1.8rem", margin: "5px 0", fontWeight: 800 }}>
             {featuredItem.title[lang]}
           </h2>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div
               style={{
                 padding: "4px 12px",
-                backgroundColor: "rgba(255,255,255,0.2)",
-                borderRadius: "10px",
+                backgroundColor: "rgba(255,255,255,0.25)",
+                borderRadius: "12px",
                 fontSize: "0.8rem",
+                fontWeight: 600,
               }}
             >
               {featuredItem.type[lang]}
             </div>
-            <span style={{ fontSize: "0.85rem" }}>
+            <span style={{ fontSize: "0.85rem", opacity: 0.9 }}>
               • {featuredItem.duration}
             </span>
           </div>
-        </div>
+        </motion.div>
       )}
 
-      {/* Categories Toolbar */}
+      {/* Categories Horizontal Scroll */}
       <div
+        className="no-scrollbar"
         style={{
           display: "flex",
           gap: "12px",
           overflowX: "auto",
           marginBottom: "30px",
           paddingBottom: "5px",
-          msOverflowStyle: "none",
-          scrollbarWidth: "none",
         }}
       >
         {categories.map((cat) => (
@@ -2617,55 +3057,56 @@ function ExploreScreen({ t, lang, activeMeditation, setActiveMeditation }) {
             key={cat.id}
             onClick={() => setSelectedCategory(cat.id)}
             style={{
-              padding: "10px 18px",
+              padding: "12px 20px",
               borderRadius: "20px",
               border: "none",
               whiteSpace: "nowrap",
               backgroundColor:
-                selectedCategory === cat.id ? "#D35400" : "white",
+                selectedCategory === cat.id
+                  ? "#D35400"
+                  : "var(--card-bg, white)",
               color: selectedCategory === cat.id ? "white" : "var(--text-main)",
               display: "flex",
               alignItems: "center",
               gap: "8px",
               fontSize: "0.9rem",
-              fontWeight: 600,
+              fontWeight: 700,
               cursor: "pointer",
               boxShadow: "var(--shadow-soft)",
-              transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              transition: "all 0.3s ease",
             }}
           >
-            <span>{cat.icon}</span>
+            <span style={{ fontSize: "1.2rem" }}>{cat.icon}</span>
             {cat.label}
           </button>
         ))}
       </div>
 
       <div className="section-header" style={{ marginBottom: "20px" }}>
-        <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>{t.featured}</h2>
+        <h2 style={{ fontSize: "1.3rem", fontWeight: 800 }}>{t.featured}</h2>
       </div>
 
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
-          gap: "20px",
-          paddingBottom: "40px",
+          gap: "15px",
         }}
       >
         {filteredItems.map((item) => (
           <motion.div
             key={item.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+            whileHover={{ y: -5 }}
+            whileTap={{ scale: 0.98 }}
             onClick={() => setActiveMeditation(item)}
             className="card"
             style={{
               padding: "20px",
-              borderRadius: "24px",
-              backgroundColor: "white",
+              borderRadius: "28px",
+              backgroundColor: "var(--card-bg, white)",
               display: "flex",
               flexDirection: "column",
-              gap: "12px",
+              gap: "15px",
               cursor: "pointer",
               position: "relative",
               overflow: "hidden",
@@ -2674,18 +3115,18 @@ function ExploreScreen({ t, lang, activeMeditation, setActiveMeditation }) {
                   ? "2px solid #D35400"
                   : "2px solid transparent",
             }}
-            whileHover={{ y: -5 }}
           >
             <div
               style={{
-                width: "44px",
-                height: "44px",
-                borderRadius: "14px",
+                width: "48px",
+                height: "48px",
+                borderRadius: "16px",
                 backgroundColor: item.color,
                 display: "flex",
                 justifyContent: "center",
                 alignItems: "center",
-                fontSize: "1.2rem",
+                fontSize: "1.4rem",
+                boxShadow: "0 4px 10px rgba(0,0,0,0.05)",
               }}
             >
               {item.icon}
@@ -2697,6 +3138,7 @@ function ExploreScreen({ t, lang, activeMeditation, setActiveMeditation }) {
                   margin: "0 0 4px 0",
                   fontWeight: 700,
                   color: "var(--text-main)",
+                  lineHeight: "1.3",
                 }}
               >
                 {item.title[lang]}
@@ -2704,22 +3146,26 @@ function ExploreScreen({ t, lang, activeMeditation, setActiveMeditation }) {
               <div
                 style={{
                   fontSize: "0.75rem",
-                  color: PALETTE.GRAY,
+                  color: "var(--text-dim)",
                   display: "flex",
                   alignItems: "center",
-                  gap: "4px",
+                  gap: "6px",
+                  fontWeight: 600,
                 }}
               >
-                <ClipboardList size={12} /> {item.duration}
+                <ClipboardList size={14} /> {item.duration}
               </div>
             </div>
+            {/* Subtle background icon decoration */}
             <div
               style={{
                 position: "absolute",
-                bottom: "-10px",
-                right: "-10px",
-                fontSize: "50px",
-                opacity: 0.03,
+                bottom: "-15px",
+                right: lang === "ar" ? "auto" : "-15px",
+                left: lang === "ar" ? "-15px" : "auto",
+                fontSize: "60px",
+                opacity: 0.05,
+                transform: "rotate(-15deg)",
               }}
             >
               {item.icon}
@@ -2727,6 +3173,15 @@ function ExploreScreen({ t, lang, activeMeditation, setActiveMeditation }) {
           </motion.div>
         ))}
       </div>
+
+      {filteredItems.length === 0 && (
+        <div
+          style={{ textAlign: "center", padding: "60px 20px", opacity: 0.5 }}
+        >
+          <Search size={48} style={{ marginBottom: "15px" }} />
+          <p>{lang === "en" ? "No results found" : "لا توجد نتائج"}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -3640,23 +4095,78 @@ function NotificationScreen({
   );
 }
 
-function AnalyticsScreen({ t, lang, setScreen, user }) {
+function AnalyticsScreen({
+  t,
+  lang,
+  setScreen,
+  user,
+  journals,
+  todoLists,
+  meditationHistory,
+}) {
+  // 1. Total Focus Calculation
+  const totalMinutes = meditationHistory.reduce(
+    (acc, curr) => acc + (curr.duration || 0),
+    0,
+  );
+  const totalHours = (totalMinutes / 60).toFixed(1);
+
+  // 2. Journal Streak Calculation
+  let journalStreak = 0;
+  let checkDate = new Date();
+  for (let i = 0; i < 365; i++) {
+    const dateStr = checkDate.toISOString().split("T")[0];
+    const dayData = journals[dateStr];
+    const hasEntry =
+      dayData &&
+      ((Array.isArray(dayData) && dayData.length > 0) ||
+        (dayData.entries && dayData.entries.length > 0) ||
+        dayData.title ||
+        dayData.image);
+
+    if (hasEntry) {
+      journalStreak++;
+      checkDate.setDate(checkDate.getDate() - 1);
+    } else {
+      // If it's today and empty, check yesterday to see if we can still count the streak
+      if (i === 0) {
+        checkDate.setDate(checkDate.getDate() - 1);
+        continue;
+      }
+      break;
+    }
+  }
+
+  // 3. Task Success Rate
+  let totalTasks = 0;
+  let completedTasks = 0;
+  Object.values(todoLists).forEach((list) => {
+    if (Array.isArray(list)) {
+      list.forEach((task) => {
+        totalTasks++;
+        if (task.completed) completedTasks++;
+      });
+    }
+  });
+  const taskRatio =
+    totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
   const stats = [
     {
       label: t.totalFocus,
-      value: "124h",
+      value: totalHours + "h",
       color: PALETTE.TEAL,
       icon: <Compass size={24} />,
     },
     {
       label: t.journalStreak,
-      value: "15",
+      value: journalStreak.toString(),
       color: PALETTE.GREEN,
       icon: <BookOpen size={24} />,
     },
     {
       label: t.tasksRatio,
-      value: "92%",
+      value: taskRatio + "%",
       color: "#E63946",
       icon: <Award size={24} />,
     },
@@ -3762,7 +4272,7 @@ function AnalyticsScreen({ t, lang, setScreen, user }) {
   );
 }
 
-function MiniPlayer({ t, lang, item, onClose }) {
+function MiniPlayer({ t, lang, item, onClose, onComplete }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const totalSeconds = parseInt(item.duration) * 60 || 600;
   const [timeLeft, setTimeLeft] = useState(totalSeconds);
@@ -3782,12 +4292,13 @@ function MiniPlayer({ t, lang, item, onClose }) {
     } else if (timeLeft === 0 && !isFinished) {
       setIsPlaying(false);
       setIsFinished(true);
+      if (onComplete) onComplete();
       if (soundRef.current) {
         soundRef.current.play().catch((e) => console.log("Audio error:", e));
       }
     }
     return () => clearInterval(timer);
-  }, [isPlaying, timeLeft, isFinished]);
+  }, [isPlaying, timeLeft, isFinished, onComplete]);
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
