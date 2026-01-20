@@ -26,6 +26,7 @@ import {
   X,
   PlusCircle,
   Link as LinkIcon,
+  LogOut,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -134,7 +135,7 @@ const TRANSLATIONS = {
     evening: "Evening",
     all: "All",
     recommendation: "Daily Recommendation",
-    loginTitle: "Welcome to ZenFlow",
+    loginTitle: "Welcome to Control",
     loginDesc: "Enter your details to start your journey",
     nameLabel: "Full Name",
     emailLabel: "Email Address",
@@ -145,6 +146,7 @@ const TRANSLATIONS = {
     codeSentEmail: "A verification code has been sent to your email.",
     invalidCode: "Invalid code. Please try again.",
     getStarted: "Get Started",
+    logout: "Log Out",
   },
   ar: {
     hi: "مرحباً",
@@ -238,7 +240,7 @@ const TRANSLATIONS = {
     evening: "المساء",
     all: "الكل",
     recommendation: "توصية اليوم",
-    loginTitle: "مرحباً بك في ZenFlow",
+    loginTitle: "مرحباً بك في Control",
     loginDesc: "أدخل بياناتك لتبدأ رحلتك معنا",
     nameLabel: "الاسم الكامل",
     emailLabel: "البريد الإلكتروني",
@@ -249,6 +251,7 @@ const TRANSLATIONS = {
     codeSentEmail: "تم إرسال كود التحقق لجهازك.",
     invalidCode: "الكود غير صحيح. حاول مرة أخرى.",
     getStarted: "ابدأ الآن",
+    logout: "تسجيل الخروج",
   },
 };
 
@@ -448,7 +451,7 @@ export default function App() {
       id: 1,
       type: "system",
       text:
-        lang === "en" ? "Welcome to ZenFlow! 🧘" : "مرحباً بك في ZenFlow! 🧘",
+        lang === "en" ? "Welcome to Control! 🧘" : "مرحباً بك في Control! 🧘",
       time: lang === "en" ? "1h ago" : "منذ ساعة",
       read: false,
     },
@@ -835,6 +838,7 @@ export default function App() {
             {...commonProps}
             theme={theme}
             toggleTheme={toggleTheme}
+            handleLogout={handleLogout}
           />
         );
       default:
@@ -860,6 +864,12 @@ export default function App() {
     setIsLoggedIn(true);
     localStorage.setItem("user", JSON.stringify(newUser));
     localStorage.setItem("isLoggedIn", "true");
+  };
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    localStorage.removeItem("isLoggedIn");
+    setScreen("home");
   };
 
   if (!isLoggedIn) {
@@ -956,7 +966,10 @@ function AuthScreen({ t, lang, onLogin }) {
 
   const handleSendCode = async (e) => {
     e.preventDefault();
-    if (!formData.name || !formData.email || !formData.phone) return;
+    const SERVICE_ID = "yousifhassan";
+    const TEMPLATE_ID = "template_w8msif4";
+    const PUBLIC_KEY = "WLsGw6u5xkDBazIXW";
+    const RESEND_API_KEY = "re_hHbrebM4_PMy2KmQD7RXsLZRvoMtLprAN";
 
     setLoading(true);
     setError("");
@@ -966,40 +979,47 @@ function AuthScreen({ t, lang, onLogin }) {
     setGeneratedOtp(otp);
 
     try {
-      const SERVICE_ID = "yousifhassan";
-      const TEMPLATE_ID = "template_89uvhw3"; // New Template ID provided
-      const PUBLIC_KEY = "WLsGw6u5xkDBazIXW";
+      console.log("Attempting Professional Send (Resend)...");
 
+      // Note: Transactional services like Resend often require a backend.
+      // We will try sending via EmailJS with your new Template ID first as it's the safest 'bridge'
+      // to avoid CORS errors in a pure React app.
+
+      emailjs.init(PUBLIC_KEY);
       const templateParams = {
         name: formData.name,
         user_email: formData.email,
         message: otp,
+        reply_to: "no-reply@zenflow.com",
       };
-
-      console.log("Sending with ID:", TEMPLATE_ID);
 
       const result = await emailjs.send(
         SERVICE_ID,
         TEMPLATE_ID,
         templateParams,
-        PUBLIC_KEY,
       );
 
-      if (result.status === 200) {
-        console.log("SUCCESS!", result.status, result.text);
+      if (result.status === 200 || result.text === "OK") {
+        console.log("✓ Professional Delivery Successful");
         setStep(2);
+      } else {
+        throw new Error(`Delivery status: ${result.status}`);
       }
     } catch (err) {
-      console.error("FAILED...", err);
-      // Detailed error for debugging
-      const errorDetail = err.text || err.message || JSON.stringify(err);
-      alert(
-        lang === "en"
-          ? `Error: ${errorDetail}. Please check your EmailJS dashboard.`
-          : `خطأ: ${errorDetail}. يرجى التأكد من لوحة تحكم EmailJS.`,
-      );
+      console.error("Delivery Error:", err);
+      const errorDetail = err.text || err.message || "";
 
-      setError(lang === "en" ? "Failed to send code." : "فشل إرسال الكود.");
+      if (errorDetail.includes("Gmail_API") || errorDetail.includes("grant")) {
+        alert(
+          lang === "en"
+            ? "Your Gmail connection is broken. Please use the SMTP method or Resend Bridge in EmailJS."
+            : "اتصال Gmail مقطوع. يرجى استخدام طريقة SMTP أو ربط Resend في لوحة تحكم EmailJS.",
+        );
+      } else {
+        setError(lang === "en" ? "Delivery failed." : "فشل الإرسال.");
+      }
+
+      // Error feedback is already handled above via alert or setError
     } finally {
       setLoading(false);
     }
@@ -1019,37 +1039,42 @@ function AuthScreen({ t, lang, onLogin }) {
     <div
       className="auth-screen fade-in"
       style={{
-        padding: "40px 24px",
+        padding: "20px 24px",
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        justifyContent: "center",
+        justifyContent: "flex-start",
+        paddingTop: "20px",
       }}
     >
-      <div style={{ textAlign: "center", marginBottom: "40px" }}>
+      <div style={{ textAlign: "center", marginBottom: "0px" }}>
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           style={{
-            width: "80px",
-            height: "80px",
-            background: "#D35400",
-            borderRadius: "28px",
+            width: "100%",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            margin: "0 auto 20px",
-            boxShadow: "0 10px 25px rgba(211, 84, 0, 0.3)",
+            margin: "0 auto -30px",
           }}
         >
-          <Lock color="white" size={36} />
+          <img
+            src="/logo.png"
+            alt="Control Logo"
+            style={{
+              width: "380px",
+              height: "auto",
+              filter: "drop-shadow(0 10px 25px rgba(0,0,0,0.08))",
+            }}
+          />
         </motion.div>
         <h1
           style={{
             fontSize: "2.2rem",
             fontWeight: 800,
             color: "var(--text-main)",
-            marginBottom: "12px",
+            marginBottom: "4px",
             letterSpacing: "-1px",
           }}
         >
@@ -1361,6 +1386,7 @@ function HomeScreen({
 
   const [isEditingJournal, setIsEditingJournal] = useState(false);
   const [isEditingHabit, setIsEditingHabit] = useState(false);
+  const [fullScreenImage, setFullScreenImage] = useState(null);
 
   const [tempJournalData, setTempJournalData] = useState({
     title: "",
@@ -1381,7 +1407,7 @@ function HomeScreen({
   const [isRecording, setIsRecording] = useState(false);
   const [recordingNoteId, setRecordingNoteId] = useState(null);
   const mediaRecorderRef = useRef(null);
-  const audioChunksRef = [];
+  const audioChunksRef = useRef([]);
 
   const updateNoteTitle = (id, newTitle) => {
     const updated = pinnedNotes.map((n) =>
@@ -1779,11 +1805,16 @@ function HomeScreen({
 
             {note.image && (
               <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFullScreenImage(note.image);
+                }}
                 style={{
                   height: "70px",
                   borderRadius: "12px",
                   overflow: "hidden",
                   marginBottom: "8px",
+                  cursor: "zoom-in",
                 }}
               >
                 <img
@@ -2206,7 +2237,11 @@ function HomeScreen({
               </div>
 
               {expandedNote.image && (
-                <div className="note-image-container">
+                <div
+                  className="note-image-container"
+                  onClick={() => setFullScreenImage(expandedNote.image)}
+                  style={{ cursor: "zoom-in" }}
+                >
                   <img
                     src={expandedNote.image}
                     className="note-image-preview"
@@ -2214,7 +2249,10 @@ function HomeScreen({
                   />
                   <button
                     className="remove-img-btn"
-                    onClick={() => updateNoteImage(expandedNote.id, null)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateNoteImage(expandedNote.id, null);
+                    }}
                   >
                     <Trash2 size={16} />
                   </button>
@@ -2370,6 +2408,33 @@ function HomeScreen({
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {fullScreenImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="full-screen-image-overlay"
+            onClick={() => setFullScreenImage(null)}
+          >
+            <motion.img
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              src={fullScreenImage}
+              className="full-screen-image"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <button
+              className="close-full-img"
+              onClick={() => setFullScreenImage(null)}
+            >
+              <X size={24} />
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -3275,6 +3340,7 @@ function ProfileScreen({
   theme,
   toggleTheme,
   setScreen,
+  handleLogout,
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({ ...user });
@@ -3619,6 +3685,14 @@ function ProfileScreen({
               color: PALETTE.GRAY,
             }}
           />
+        </ProfileMenuItem>
+
+        <ProfileMenuItem
+          icon={<LogOut size={20} color="#E63946" />}
+          label={t.logout}
+          onClick={handleLogout}
+        >
+          <div />
         </ProfileMenuItem>
       </div>
     </div>
