@@ -27,6 +27,8 @@ import {
   PlusCircle,
   Link as LinkIcon,
   LogOut,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -877,7 +879,13 @@ export default function App() {
       <div
         className={`iphone-frame ${lang === "ar" ? "rtl" : ""} theme-${theme}`}
       >
-        <AuthScreen t={t} lang={lang} onLogin={handleLogin} />
+        <AuthScreen
+          t={t}
+          lang={lang}
+          onLogin={handleLogin}
+          theme={theme}
+          toggleTheme={toggleTheme}
+        />
       </div>
     );
   }
@@ -956,9 +964,9 @@ export default function App() {
   );
 }
 
-function AuthScreen({ t, lang, onLogin }) {
+function AuthScreen({ t, lang, onLogin, theme, toggleTheme }) {
   const [step, setStep] = useState(1);
-  const [formData, setFormData] = useState({ name: "", email: "", phone: "" });
+  const [formData, setFormData] = useState({ name: "", email: "" });
   const [code, setCode] = useState("");
   const [generatedOtp, setGeneratedOtp] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1045,8 +1053,30 @@ function AuthScreen({ t, lang, onLogin }) {
         flexDirection: "column",
         justifyContent: "flex-start",
         paddingTop: "20px",
+        position: "relative",
       }}
     >
+      <button
+        onClick={toggleTheme}
+        style={{
+          position: "absolute",
+          top: "20px",
+          right: "20px",
+          background: "rgba(0,0,0,0.05)",
+          border: "none",
+          borderRadius: "12px",
+          width: "40px",
+          height: "40px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          color: theme === "dark" ? "white" : "black",
+          zIndex: 10,
+        }}
+      >
+        {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
+      </button>
       <div style={{ textAlign: "center", marginBottom: "0px" }}>
         <motion.div
           initial={{ scale: 0 }}
@@ -1056,16 +1086,19 @@ function AuthScreen({ t, lang, onLogin }) {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            margin: "0 auto -30px",
+            margin: "0 auto -60px",
           }}
         >
           <img
-            src="/logo.png"
+            src={theme === "dark" ? "/logo_dark.png" : "/logo.png"}
             alt="Control Logo"
             style={{
               width: "380px",
               height: "auto",
-              filter: "drop-shadow(0 10px 25px rgba(0,0,0,0.08))",
+              filter:
+                theme === "dark"
+                  ? "none"
+                  : "drop-shadow(0 10px 25px rgba(0,0,0,0.08))",
             }}
           />
         </motion.div>
@@ -1157,34 +1190,7 @@ function AuthScreen({ t, lang, onLogin }) {
                 }}
               />
             </div>
-            <div className="input-group">
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "0.85rem",
-                  fontWeight: 700,
-                  color: "var(--text-dim)",
-                  marginBottom: "8px",
-                  paddingLeft: "5px",
-                }}
-              >
-                {t.phoneLabel}
-              </label>
-              <input
-                required
-                type="tel"
-                placeholder="+964 7XX XXX XXXX"
-                value={formData.phone}
-                onChange={(e) =>
-                  setFormData({ ...formData, phone: e.target.value })
-                }
-                style={{
-                  ...editInputStyle(lang),
-                  backgroundColor: "var(--card-bg, white)",
-                  boxShadow: "var(--shadow-soft)",
-                }}
-              />
-            </div>
+
             <button
               type="submit"
               disabled={loading}
@@ -1193,13 +1199,13 @@ function AuthScreen({ t, lang, onLogin }) {
                 padding: "18px",
                 borderRadius: "20px",
                 border: "none",
-                background: "#D35400",
+                background: "#629FAD",
                 color: "white",
                 fontWeight: 700,
                 fontSize: "1.1rem",
                 marginTop: "10px",
                 cursor: "pointer",
-                boxShadow: "0 8px 20px rgba(211, 84, 0, 0.25)",
+                boxShadow: "0 8px 20px rgba(98, 159, 173, 0.25)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -1333,7 +1339,7 @@ function AuthScreen({ t, lang, onLogin }) {
                 style={{
                   background: "none",
                   border: "none",
-                  color: "#D35400",
+                  color: "#629FAD",
                   fontWeight: 700,
                   cursor: "pointer",
                   fontSize: "0.9rem",

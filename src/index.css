@@ -48,7 +48,7 @@
 .glass-widget h3 {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #000;
+  color: var(--text-main);
   margin-bottom: 6px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -59,7 +59,7 @@
 
 .glass-widget p {
   font-size: 0.75rem;
-  color: #333;
+  color: var(--text-dim);
   line-height: 1.4;
   font-weight: 500;
   display: -webkit-box;
@@ -70,9 +70,9 @@
 }
 
 :root {
-  --color-1: #394867;
-  --color-2: #212a3e;
-  --color-3: #9ba4b5;
+  --color-1: #4a4a4a; /* Dark Gray Subtitle */
+  --color-2: #333333; /* Very Dark Gray Main Text */
+  --color-3: #777777; /* Medium Gray Dim Text */
   --color-4: #f1f6f9;
   --color-5: #1d546d;
   --color-6: #5f9598;
@@ -93,10 +93,13 @@
 }
 
 .iphone-frame.theme-dark {
-  --color-1: #e0e0e0; /* Subtitle text */
-  --color-2: #ffffff; /* Main text */
+  --color-1: #bbbbbb; /* Light Gray Subtitle */
+  --color-2: #e0e0e0; /* Very Light Gray Main text */
   --color-3: #888888; /* Dim text */
   --color-4: #000000; /* Pure Black Background */
+  --text-main: var(--color-2);
+  --text-sub: var(--color-1);
+  --text-dim: var(--color-3);
   background: #000000 !important;
   color: #e0e0e0 !important; /* Changed from #ffffff to #e0e0e0 for better reading */
 }
