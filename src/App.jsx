@@ -658,12 +658,28 @@ export default function App() {
   };
 
   const joinGroup = (code) => {
-    if (groups.find((g) => g.code === code)) return;
+    const existing = groups.find(
+      (g) => g.code.toUpperCase() === code.toUpperCase(),
+    );
+    if (existing) {
+      setActiveGroupId(existing.id);
+      alert(
+        lang === "en"
+          ? `Switched to group: ${existing.name}`
+          : `تم الانتقال إلى المجموعة: ${existing.name}`,
+      );
+      return;
+    }
+    // For demo purposes, we create a new entry if code not found
     const newGroup = {
       id: "g" + Date.now(),
-      name: "New Joined Group",
+      name: lang === "en" ? "New Community" : "مجتمع جديد",
       role: "member",
-      code,
+      code: code.toUpperCase(),
+      members: [
+        { id: "u1", name: user.name, initials: "YO" },
+        { id: "u4", name: "System", initials: "SY" },
+      ],
       updates: [],
       tasks: [],
     };
@@ -671,6 +687,11 @@ export default function App() {
     setGroups(updated);
     localStorage.setItem("groups", JSON.stringify(updated));
     setActiveGroupId(newGroup.id);
+    alert(
+      lang === "en"
+        ? "Successfully joined a new group!"
+        : "تم الانضمام لمجموعة جديدة بنجاح!",
+    );
   };
 
   const updateGroupTask = (groupId, taskId, status) => {
@@ -3257,12 +3278,14 @@ function SharedTasksScreen({
             justifyContent: "space-between",
             alignItems: "center",
             marginBottom: "15px",
+            flexWrap: "wrap",
+            gap: "10px",
           }}
         >
-          <h3 style={{ margin: 0, fontSize: "1.1rem" }}>
+          <h3 style={{ margin: 0, fontSize: "1rem" }}>
             {lang === "en" ? "Project Goal" : "هدف المشروع"}
           </h3>
-          <span style={{ fontSize: "0.9rem", fontWeight: 700 }}>
+          <span style={{ fontSize: "0.85rem", fontWeight: 700 }}>
             {Math.round(progressPercent)}%
           </span>
         </div>
@@ -3410,7 +3433,7 @@ function SharedTasksScreen({
               )
             }
             style={{
-              padding: "20px",
+              padding: "16px",
               borderRadius: "24px",
               backgroundColor: "var(--card-bg, white)",
               boxShadow: "var(--shadow-soft)",
@@ -3420,11 +3443,12 @@ function SharedTasksScreen({
                   : "2px solid transparent",
               display: "flex",
               alignItems: "center",
-              gap: "18px",
+              gap: "14px",
               cursor: "pointer",
               transition: "all 0.3s ease",
               position: "relative",
               opacity: task.status === "locked" ? 0.6 : 1,
+              flexWrap: "wrap",
             }}
           >
             <div
@@ -5148,17 +5172,20 @@ function GroupsScreen({
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
-                    alignItems: "flex-start",
+                    alignItems: "center",
                     marginBottom: "20px",
+                    flexWrap: "wrap",
+                    gap: "15px",
                   }}
                 >
-                  <div>
+                  <div style={{ flex: "1 1 150px" }}>
                     <h2
                       style={{
-                        fontSize: "1.6rem",
+                        fontSize: "1.4rem",
                         fontWeight: 900,
                         margin: "0 0 6px 0",
                         color: "#1D546D",
+                        wordBreak: "break-word",
                       }}
                     >
                       {activeGroup.name}
@@ -5168,6 +5195,7 @@ function GroupsScreen({
                         display: "flex",
                         gap: "8px",
                         alignItems: "center",
+                        flexWrap: "wrap",
                       }}
                     >
                       <span
@@ -5210,7 +5238,8 @@ function GroupsScreen({
                             fontWeight: 600,
                           }}
                         >
-                          4 {lang === "en" ? "active" : "نشط"}
+                          {activeGroup.members?.length || 0}{" "}
+                          {lang === "en" ? "active" : "نشط"}
                         </span>
                       </div>
                     </div>
@@ -5218,7 +5247,7 @@ function GroupsScreen({
                   <div style={{ textAlign: lang === "ar" ? "left" : "right" }}>
                     <span
                       style={{
-                        fontSize: "0.7rem",
+                        fontSize: "0.65rem",
                         color: PALETTE.GRAY,
                         fontWeight: 800,
                         display: "block",
@@ -5230,21 +5259,22 @@ function GroupsScreen({
                     <div
                       onClick={copyInviteCode}
                       style={{
-                        padding: "8px 16px",
+                        padding: "6px 12px",
                         background: "#F8FBFD",
                         borderRadius: "12px",
                         fontWeight: 900,
                         color: "#D35400",
-                        fontSize: "1rem",
+                        fontSize: "0.9rem",
                         boxShadow: "inset 0 2px 4px rgba(0,0,0,0.03)",
                         cursor: "pointer",
                         display: "flex",
                         alignItems: "center",
                         gap: "8px",
+                        border: "1px solid rgba(211, 84, 0, 0.1)",
                       }}
                     >
                       {activeGroup.code}
-                      <LinkIcon size={14} style={{ opacity: 0.5 }} />
+                      <LinkIcon size={12} style={{ opacity: 0.5 }} />
                     </div>
                   </div>
                 </div>
@@ -5286,17 +5316,17 @@ function GroupsScreen({
                   </div>
                 </div>
 
-                <div style={{ display: "flex", gap: "10px" }}>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
                     onClick={() => setScreen("tasks")}
                     className="btn-primary"
                     style={{
-                      flex: 1,
+                      flex: "1 1 180px",
                       height: "54px",
                       borderRadius: "18px",
                       background: "#1D546D",
                       color: "white",
-                      fontSize: "0.95rem",
+                      fontSize: "0.9rem",
                       fontWeight: 700,
                       display: "flex",
                       alignItems: "center",
