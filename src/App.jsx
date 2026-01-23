@@ -410,7 +410,8 @@ export default function App() {
   );
   const [user, setUser] = useState(() => {
     const defaultUser = {
-      name: "Jose Maria",
+      uid: "u1",
+      name: "Yousif",
       email: "jose@example.com",
       image:
         "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop",
@@ -502,28 +503,6 @@ export default function App() {
   };
   const [groups, setGroups] = useState(() => {
     const saved = localStorage.getItem("groups");
-    const defaultTasks = [
-      {
-        id: 1,
-        title: { en: "Morning Gratitude", ar: "الامتنان الصباحي" },
-        desc: {
-          en: "Write down 3 things you are grateful for.",
-          ar: "اكتب 3 أشياء تشعر بالامتنان لها.",
-        },
-        assigned: "JM",
-        status: "completed",
-      },
-      {
-        id: 2,
-        title: { en: "Breathe Deeply", ar: "تنفس بعمق" },
-        desc: {
-          en: "Complete a 5-minute breathing exercise.",
-          ar: "أكمل تمرين تنفس لمدة 5 دقائق.",
-        },
-        assigned: "AK",
-        status: "active",
-      },
-    ];
     return saved
       ? JSON.parse(saved)
       : [
@@ -532,8 +511,43 @@ export default function App() {
             name: "Family Trip Prep",
             role: "manager",
             code: "TRIP2024",
-            updates: [],
-            tasks: defaultTasks,
+            members: [
+              { id: "u1", name: "Yousif", initials: "YO" },
+              { id: "u2", name: "Sarah", initials: "SA" },
+              { id: "u3", name: "Khalid", initials: "KH" },
+            ],
+            updates: [
+              {
+                id: 1,
+                user: "Yousif",
+                text: "I've started working on the gratitude task! 🙌",
+                time: "2h ago",
+              },
+              {
+                id: 2,
+                user: "Sarah",
+                text: "Does anyone have the link for the project notes?",
+                time: "1h ago",
+              },
+            ],
+            tasks: [
+              {
+                id: 1,
+                title: { en: "Morning Gratitude", ar: "الامتنان الصباحي" },
+                desc: { en: "...", ar: "..." },
+                assigned: "Yousif",
+                assignedId: "u1",
+                status: "completed",
+              },
+              {
+                id: 2,
+                title: { en: "Breathe Deeply", ar: "تنفس بعمق" },
+                desc: { en: "...", ar: "..." },
+                assigned: "Sarah",
+                assignedId: "u2",
+                status: "active",
+              },
+            ],
           },
         ];
   });
@@ -605,7 +619,7 @@ export default function App() {
     localStorage.setItem("user", JSON.stringify(updatedUser));
   };
 
-  const addUpdateToGroup = (groupId, text) => {
+  const addUpdateToGroup = (groupId, text, image = null) => {
     const newGroups = groups.map((g) => {
       if (g.id === groupId) {
         return {
@@ -615,7 +629,8 @@ export default function App() {
               id: Date.now(),
               user: user.name,
               text,
-              time: new Date().toLocaleTimeString(),
+              image,
+              time: "Just now",
             },
             ...g.updates,
           ],
@@ -662,7 +677,18 @@ export default function App() {
     const updated = groups.map((g) => {
       if (g.id === groupId) {
         const newTasks = g.tasks.map((t) => {
-          if (t.id === taskId) return { ...t, status };
+          if (t.id === taskId) {
+            // Restriction: Only assigned user can complete
+            if (status === "completed" && t.assignedId !== user.uid) {
+              alert(
+                lang === "en"
+                  ? "Only the assigned member can complete this task!"
+                  : "يمكن للعضو المكلف فقط إكمال هذه المهمة!",
+              );
+              return t;
+            }
+            return { ...t, status };
+          }
           return t;
         });
         return { ...g, tasks: newTasks };
@@ -3099,86 +3125,281 @@ function SharedTasksScreen({
   addGroupTask,
 }) {
   const [showAdd, setShowAdd] = useState(false);
-  const [newTask, setNewTask] = useState({ title: "", desc: "", assigned: "" });
+  const [newTask, setNewTask] = useState({
+    title: "",
+    desc: "",
+    assigned: "",
+    assignedId: "",
+  });
 
   if (!group) return null;
 
+  const completedTasks = group.tasks.filter(
+    (t) => t.status === "completed",
+  ).length;
+  const totalTasks = group.tasks.length;
+  const progressPercent =
+    totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
   const handleAddTask = () => {
-    if (newTask.title && newTask.assigned) {
+    if (newTask.title && newTask.assignedId) {
+      const assignedMember = group.members.find(
+        (m) => m.id === newTask.assignedId,
+      );
       addGroupTask(group.id, {
         title: { en: newTask.title, ar: newTask.title },
-        desc: { en: newTask.desc, ar: newTask.desc },
-        assigned: newTask.assigned,
+        desc: { en: newTask.desc || "", ar: newTask.desc || "" },
+        assigned: assignedMember.name,
+        assignedId: newTask.assignedId,
       });
-      setNewTask({ title: "", desc: "", assigned: "" });
+      setNewTask({ title: "", desc: "", assigned: "", assignedId: "" });
       setShowAdd(false);
     }
   };
 
   return (
-    <div className="tasks-screen">
-      <div className="top-nav-bar">
-        <button className="nav-icon-btn" onClick={() => setScreen("groups")}>
+    <div
+      className="tasks-screen fade-in"
+      style={{
+        padding: "24px",
+        paddingBottom: "100px",
+        height: "100%",
+        overflowY: "auto",
+        backgroundColor: "var(--bg-main)",
+      }}
+    >
+      <div
+        className="top-nav-bar"
+        style={{ marginBottom: "25px", display: "flex", alignItems: "center" }}
+      >
+        <button
+          className="nav-icon-btn"
+          onClick={() => setScreen("groups")}
+          style={{
+            background: "rgba(0,0,0,0.05)",
+            borderRadius: "15px",
+            width: "45px",
+            height: "45px",
+          }}
+        >
           <ChevronLeft
             size={24}
             style={{ transform: lang === "ar" ? "rotate(180deg)" : "none" }}
           />
         </button>
         <div style={{ textAlign: "center", flex: 1 }}>
-          <h2 style={{ margin: 0 }}>{group.name}</h2>
-          <span style={{ fontSize: "0.75rem", color: PALETTE.GRAY }}>
+          <h2
+            style={{
+              margin: 0,
+              fontSize: "1.4rem",
+              fontWeight: 800,
+              color: "var(--text-main)",
+            }}
+          >
+            {group.name}
+          </h2>
+          <span
+            style={{
+              fontSize: "0.8rem",
+              color: PALETTE.GRAY,
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "1px",
+            }}
+          >
             {t.sharedTasks}
           </span>
         </div>
-        <button className="nav-icon-btn" onClick={() => setShowAdd(!showAdd)}>
+        <button
+          className="nav-icon-btn"
+          onClick={() => setShowAdd(!showAdd)}
+          style={{
+            background: "#629FAD",
+            color: "white",
+            borderRadius: "15px",
+            width: "45px",
+            height: "45px",
+            boxShadow: "0 5px 15px rgba(98, 159, 173, 0.3)",
+          }}
+        >
           <Plus size={24} />
         </button>
+      </div>
+
+      {/* Project Progress Overview */}
+      <div
+        className="card"
+        style={{
+          padding: "24px",
+          borderRadius: "32px",
+          background: "linear-gradient(135deg, #2c3e50, #000000)",
+          color: "white",
+          marginBottom: "30px",
+          boxShadow: "0 15px 35px rgba(0,0,0,0.2)",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: "-20px",
+            right: "-20px",
+            fontSize: "100px",
+            opacity: 0.1,
+          }}
+        >
+          🚀
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "15px",
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: "1.1rem" }}>
+            {lang === "en" ? "Project Goal" : "هدف المشروع"}
+          </h3>
+          <span style={{ fontSize: "0.9rem", fontWeight: 700 }}>
+            {Math.round(progressPercent)}%
+          </span>
+        </div>
+        <div
+          style={{
+            height: "10px",
+            background: "rgba(255,255,255,0.1)",
+            borderRadius: "10px",
+            overflow: "hidden",
+            marginBottom: "15px",
+          }}
+        >
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${progressPercent}%` }}
+            style={{
+              height: "100%",
+              background: "linear-gradient(90deg, #629FAD, #5F9598)",
+              borderRadius: "10px",
+            }}
+          />
+        </div>
+        <div
+          style={{
+            display: "flex",
+            gap: "10px",
+            fontSize: "0.85rem",
+            opacity: 0.8,
+          }}
+        >
+          <CheckCircle2 size={16} />
+          <span>
+            {completedTasks} / {totalTasks}{" "}
+            {lang === "en" ? "tasks completed" : "مهام مكتملة"}
+          </span>
+        </div>
       </div>
 
       {showAdd && group.role === "manager" && (
         <div
           className="card slide-up"
           style={{
-            padding: "20px",
-            marginBottom: "20px",
+            padding: "24px",
+            marginBottom: "25px",
             display: "flex",
             flexDirection: "column",
-            gap: "10px",
+            gap: "15px",
+            borderRadius: "28px",
+            boxShadow: "var(--shadow-soft)",
           }}
         >
+          <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700 }}>
+            {t.createNewTask}
+          </h3>
           <input
             type="text"
-            placeholder={t.groupName}
+            placeholder={lang === "en" ? "Task Title..." : "عنوان المهمة..."}
             value={newTask.title}
             onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
             style={editInputStyle(lang)}
           />
-          <input
-            type="text"
-            placeholder={t.assignedTo}
-            value={newTask.assigned}
-            onChange={(e) =>
-              setNewTask({ ...newTask, assigned: e.target.value })
-            }
-            style={editInputStyle(lang)}
-          />
-          <button
-            onClick={handleAddTask}
-            className="btn-primary"
-            style={{ height: "45px" }}
+          <select
+            value={newTask.assignedId}
+            onChange={(e) => {
+              const member = group.members.find((m) => m.id === e.target.value);
+              setNewTask({
+                ...newTask,
+                assignedId: e.target.value,
+                assigned: member?.name || "",
+              });
+            }}
+            style={{ ...editInputStyle(lang), appearance: "none" }}
           >
-            {t.save}
-          </button>
+            <option value="">
+              {lang === "en" ? "Select Member" : "اختر عضواً"}
+            </option>
+            {group.members?.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.name}
+              </option>
+            ))}
+          </select>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button
+              onClick={handleAddTask}
+              className="btn-primary"
+              style={{ flex: 1, height: "50px", borderRadius: "15px" }}
+            >
+              {t.addTask}
+            </button>
+            <button
+              onClick={() => setShowAdd(false)}
+              className="btn-secondary"
+              style={{
+                width: "50px",
+                height: "50px",
+                borderRadius: "15px",
+                padding: 0,
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
       )}
 
       <div
-        className="tasks-list"
-        style={{ display: "flex", flexDirection: "column", gap: "15px" }}
+        className="section-header"
+        style={{ marginBottom: "20px", display: "flex", alignItems: "center" }}
       >
-        {group.tasks.map((task) => (
-          <div
+        <h2 style={{ fontSize: "1.2rem", fontWeight: 800, flex: 1 }}>
+          {lang === "en" ? "Active Tasks" : "المهام الحالية"}
+        </h2>
+        <div
+          style={{
+            background: "rgba(98, 159, 173, 0.1)",
+            color: "#629FAD",
+            padding: "4px 12px",
+            borderRadius: "10px",
+            fontSize: "0.75rem",
+            fontWeight: 800,
+          }}
+        >
+          {totalTasks} {lang === "en" ? "TOTAL" : "الكل"}
+        </div>
+      </div>
+
+      <div
+        className="tasks-list"
+        style={{ display: "flex", flexDirection: "column", gap: "18px" }}
+      >
+        {group.tasks.map((task, index) => (
+          <motion.div
             key={task.id}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.05 }}
             className={`task-item ${task.status}`}
             onClick={() =>
               task.status !== "locked" &&
@@ -3188,63 +3409,142 @@ function SharedTasksScreen({
                 task.status === "completed" ? "active" : "completed",
               )
             }
+            style={{
+              padding: "20px",
+              borderRadius: "24px",
+              backgroundColor: "var(--card-bg, white)",
+              boxShadow: "var(--shadow-soft)",
+              border:
+                task.status === "completed"
+                  ? "2px solid rgba(95, 149, 152, 0.2)"
+                  : "2px solid transparent",
+              display: "flex",
+              alignItems: "center",
+              gap: "18px",
+              cursor: "pointer",
+              transition: "all 0.3s ease",
+              position: "relative",
+              opacity: task.status === "locked" ? 0.6 : 1,
+            }}
           >
             <div
-              className="task-number"
+              className="task-avatar"
               style={{
+                width: "50px",
+                height: "50px",
+                borderRadius: "16px",
                 background:
-                  task.status === "completed" ? PALETTE.GREEN : PALETTE.TEAL,
+                  task.status === "completed"
+                    ? "rgba(95, 149, 152, 0.1)"
+                    : "rgba(98, 159, 173, 0.1)",
+                color: task.status === "completed" ? "#5F9598" : "#1D546D",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 800,
+                fontSize: "0.9rem",
+                boxShadow: "inset 0 2px 4px rgba(0,0,0,0.05)",
               }}
             >
               {task.assigned.substring(0, 2).toUpperCase()}
             </div>
+
             <div style={{ flex: 1 }}>
-              <div className="task-header-row">
-                <h3 style={{ margin: 0, fontSize: "1rem" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  marginBottom: "4px",
+                }}
+              >
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: "1rem",
+                    fontWeight: 700,
+                    textDecoration:
+                      task.status === "completed" ? "line-through" : "none",
+                    color:
+                      task.status === "completed"
+                        ? PALETTE.GRAY
+                        : "var(--text-main)",
+                  }}
+                >
                   {task.title[lang]}
                 </h3>
                 {task.status === "active" && (
-                  <div className="active-indicator" />
+                  <motion.div
+                    animate={{ scale: [1, 1.2, 1] }}
+                    transition={{ repeat: Infinity, duration: 1.5 }}
+                    style={{
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      backgroundColor: "#629FAD",
+                    }}
+                  />
                 )}
               </div>
-              <p style={{ margin: 0, fontSize: "0.8rem", color: PALETTE.GRAY }}>
-                {task.desc[lang]}
-              </p>
               <div
                 style={{
-                  marginTop: "8px",
                   display: "flex",
                   alignItems: "center",
-                  gap: "5px",
+                  gap: "8px",
                 }}
               >
-                <User size={12} color={PALETTE.GRAY} />
                 <span
                   style={{
-                    fontSize: "0.7rem",
+                    fontSize: "0.75rem",
+                    color: PALETTE.GRAY,
+                    fontWeight: 600,
+                  }}
+                >
+                  {lang === "en" ? "Assigned to:" : "مكلف بـ:"}
+                </span>
+                <span
+                  style={{
+                    fontSize: "0.75rem",
                     fontWeight: 700,
-                    color: PALETTE.TEAL,
+                    color: "#D35400",
+                    background: "rgba(211, 84, 0, 0.08)",
+                    padding: "2px 8px",
+                    borderRadius: "6px",
                   }}
                 >
                   {task.assigned}
                 </span>
               </div>
             </div>
-            <div className="task-status-icon">
+
+            <div
+              style={{
+                width: "28px",
+                height: "28px",
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background:
+                  task.status === "completed" ? "#5F9598" : "rgba(0,0,0,0.03)",
+                color: "white",
+                transition: "all 0.3s ease",
+              }}
+            >
               {task.status === "completed" ? (
-                <CheckCircle2 color={PALETTE.GREEN} size={24} />
+                <CheckCircle2 size={18} />
               ) : (
                 <div
                   style={{
-                    width: 24,
-                    height: 24,
+                    width: "12px",
+                    height: "12px",
                     borderRadius: "50%",
-                    border: `2px solid ${PALETTE.ICE}`,
+                    border: "2px solid rgba(0,0,0,0.1)",
                   }}
                 />
               )}
             </div>
-          </div>
+          </motion.div>
         ))}
       </div>
     </div>
@@ -3537,6 +3837,140 @@ function ExploreScreen({
           <p>{lang === "en" ? "No results found" : "لا توجد نتائج"}</p>
         </div>
       )}
+      {/* Community Pulse Component */}
+      <div style={{ marginTop: "40px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "15px",
+          }}
+        >
+          <h2 style={{ fontSize: "1.3rem", fontWeight: 800, margin: 0 }}>
+            Community Pulse
+          </h2>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              background: "#FFEBEB",
+              padding: "4px 10px",
+              borderRadius: "8px",
+              color: "#FF5252",
+              fontSize: "0.75rem",
+              fontWeight: 800,
+            }}
+          >
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "#FF5252",
+              }}
+            />{" "}
+            LIVE
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: "white",
+            borderRadius: "32px",
+            padding: "24px",
+            boxShadow: "var(--shadow-soft)",
+            border: "1px solid rgba(0,0,0,0.02)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              gap: "-10px",
+              marginBottom: "15px",
+              paddingLeft: "5px",
+            }}
+          >
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                style={{
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "10px",
+                  background: PALETTE.ICE,
+                  border: "2px solid white",
+                  marginLeft: i > 1 ? "-10px" : 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "0.7rem",
+                  fontWeight: 800,
+                  color: "#1D546D",
+                }}
+              >
+                {["SJ", "MK", "AY", "RL"][i - 1]}
+              </div>
+            ))}
+            <div
+              style={{
+                width: "32px",
+                height: "32px",
+                borderRadius: "10px",
+                background: "#F1F6F9",
+                border: "2px solid white",
+                marginLeft: "-10px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "0.65rem",
+                fontWeight: 800,
+                color: PALETTE.GRAY,
+              }}
+            >
+              +1.2k
+            </div>
+          </div>
+          <p
+            style={{
+              margin: 0,
+              fontSize: "0.95rem",
+              color: "#1D546D",
+              fontWeight: 600,
+            }}
+          >
+            {lang === "en"
+              ? "Currently Zenning with 1,248 others around the world."
+              : "تمارس التأمل حالياً مع 1,248 شخصاً حول العالم."}
+          </p>
+
+          <div
+            style={{
+              marginTop: "20px",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "10px",
+            }}
+          >
+            {["#GratitudeFlow", "#Nightbreeze", "#FocusMode"].map((tag) => (
+              <span
+                key={tag}
+                style={{
+                  padding: "6px 12px",
+                  background: "rgba(98, 159, 173, 0.08)",
+                  color: "#629FAD",
+                  borderRadius: "10px",
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                }}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3971,151 +4405,211 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
   };
 
   return (
-    <div className="all-journals-screen">
-      <header className="header" style={{ marginBottom: "20px" }}>
-        <button className="back-btn" onClick={() => setScreen("profile")}>
+    <div
+      className="all-journals-screen fade-in"
+      style={{
+        padding: "24px",
+        height: "100%",
+        overflowY: "auto",
+        paddingBottom: "100px",
+        backgroundColor: "var(--bg-main)",
+      }}
+    >
+      <header
+        className="header"
+        style={{
+          marginBottom: "30px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <button
+          className="nav-icon-btn"
+          onClick={() => setScreen("profile")}
+          style={{
+            width: "48px",
+            height: "48px",
+            borderRadius: "15px",
+            background: "white",
+          }}
+        >
           <ChevronLeft
             size={24}
             style={{
               transform: lang === "en" ? "none" : "rotate(180deg)",
+              color: "#1D546D",
             }}
           />
         </button>
-        <h1>{lang === "en" ? "All Journals" : "جميع المذكرات"}</h1>
-        <div style={{ width: "40px" }} />
-      </header>
-
-      <div style={{ padding: "0 20px 20px" }}>
-        {/* Search Bar */}
-        <div style={{ marginBottom: "20px" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              padding: "12px 16px",
-              backgroundColor: "var(--card-bg)",
-              borderRadius: "16px",
-              boxShadow: "var(--shadow-soft)",
-            }}
-          >
-            <Search size={20} color={PALETTE.GRAY} />
-            <input
-              type="text"
-              placeholder={
-                lang === "en" ? "Search journals..." : "بحث في المذكرات..."
-              }
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                flex: 1,
-                border: "none",
-                outline: "none",
-                fontSize: "0.95rem",
-                backgroundColor: "transparent",
-                color: "var(--text-main)",
-              }}
-            />
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div
+        <h1
           style={{
-            padding: "15px",
-            backgroundColor: "var(--card-bg)",
-            borderRadius: "16px",
-            marginBottom: "20px",
-            boxShadow: "var(--shadow-soft)",
-            textAlign: "center",
+            fontSize: "1.8rem",
+            fontWeight: 900,
+            margin: 0,
+            color: "#1D546D",
           }}
         >
-          <div
-            style={{ fontSize: "2rem", fontWeight: 700, color: PALETTE.TEAL }}
-          >
-            {filteredJournals.length}
-          </div>
-          <div style={{ fontSize: "0.85rem", color: PALETTE.GRAY }}>
-            {lang === "en" ? "Total Entries" : "إجمالي المذكرات"}
-          </div>
-        </div>
+          {lang === "en" ? "Archive" : "الأرشيف"}
+        </h1>
+        <div style={{ width: "48px" }} />
+      </header>
 
-        {/* Journal List */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {filteredJournals.length === 0 ? (
-            <div
+      {/* Summary Stat */}
+      <div
+        style={{
+          padding: "25px",
+          backgroundColor: "#1D546D",
+          borderRadius: "32px",
+          marginBottom: "30px",
+          boxShadow: "0 10px 30px rgba(29, 84, 109, 0.2)",
+          color: "white",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ fontSize: "2.8rem", fontWeight: 900, lineHeight: 1 }}>
+          {allJournalEntries.length}
+        </div>
+        <div
+          style={{
+            fontSize: "0.85rem",
+            opacity: 0.8,
+            fontWeight: 700,
+            marginTop: "5px",
+            textTransform: "uppercase",
+            letterSpacing: "1px",
+          }}
+        >
+          {lang === "en" ? "Total Reflections" : "إجمالي المذكرات"}
+        </div>
+      </div>
+
+      {/* Search Bar */}
+      <div style={{ marginBottom: "25px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            padding: "16px 20px",
+            backgroundColor: "white",
+            borderRadius: "20px",
+            boxShadow: "var(--shadow-soft)",
+            border: "1px solid rgba(0,0,0,0.03)",
+          }}
+        >
+          <Search size={20} color={PALETTE.GRAY} />
+          <input
+            type="text"
+            placeholder={
+              lang === "en" ? "Search your thoughts..." : "ابحث في أفكارك..."
+            }
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              flex: 1,
+              border: "none",
+              outline: "none",
+              fontSize: "1rem",
+              fontWeight: 500,
+              backgroundColor: "transparent",
+              color: "var(--text-main)",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Journals Timeline */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+        {filteredJournals.length === 0 ? (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "60px",
+              color: PALETTE.GRAY,
+            }}
+          >
+            <BookOpen
+              size={60}
+              color={PALETTE.GRAY}
+              style={{ margin: "0 auto 20px", opacity: 0.2 }}
+            />
+            <p style={{ fontWeight: 600 }}>
+              {lang === "en" ? "No matches found" : "لا توجد نتائج"}
+            </p>
+          </div>
+        ) : (
+          filteredJournals.map((entry, index) => (
+            <motion.div
+              key={entry.id || index}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.05 }}
+              onClick={() => setExpandedEntry(entry)}
               style={{
-                textAlign: "center",
-                padding: "40px 20px",
-                color: PALETTE.GRAY,
+                padding: "20px",
+                backgroundColor: "white",
+                borderRadius: "24px",
+                boxShadow: "0 4px 15px rgba(0,0,0,0.02)",
+                cursor: "pointer",
+                border: "1px solid rgba(0,0,0,0.02)",
+                position: "relative",
               }}
+              whileHover={{
+                scale: 1.01,
+                boxShadow: "0 8px 25px rgba(0,0,0,0.05)",
+              }}
+              whileTap={{ scale: 0.99 }}
             >
-              <BookOpen
-                size={48}
-                color={PALETTE.GRAY}
-                style={{ margin: "0 auto 10px" }}
-              />
-              <p>{lang === "en" ? "No journals found" : "لا توجد مذكرات"}</p>
-            </div>
-          ) : (
-            filteredJournals.map((entry, index) => (
-              <motion.div
-                key={entry.id || index}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
-                onClick={() => setExpandedEntry(entry)}
+              <div
                 style={{
-                  padding: "16px",
-                  backgroundColor: "var(--card-bg)",
-                  borderRadius: "16px",
-                  boxShadow: "var(--shadow-soft)",
-                  cursor: "pointer",
-                  transition: "transform 0.2s, box-shadow 0.2s",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "12px",
                 }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
               >
                 <div
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: "8px",
+                    fontSize: "0.85rem",
+                    color: "#629FAD",
+                    fontWeight: 800,
                   }}
                 >
-                  <div style={{ fontSize: "0.75rem", color: PALETTE.GRAY }}>
-                    {formatDisplayDate(entry.date)}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "0.75rem",
-                      color: PALETTE.TEAL,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {entry.time}
-                  </div>
+                  {formatDisplayDate(entry.date)}
                 </div>
-                <p
+                <div
                   style={{
-                    margin: 0,
-                    fontSize: "0.9rem",
-                    lineHeight: "1.6",
-                    color: "var(--text-main)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    display: "-webkit-box",
-                    WebkitLineClamp: 3,
-                    WebkitBoxOrient: "vertical",
+                    fontSize: "0.75rem",
+                    color: PALETTE.GRAY,
+                    fontWeight: 700,
+                    backgroundColor: "#F1F6F9",
+                    padding: "4px 10px",
+                    borderRadius: "8px",
                   }}
                 >
-                  {entry.text}
-                </p>
-              </motion.div>
-            ))
-          )}
-        </div>
+                  {entry.time}
+                </div>
+              </div>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "1rem",
+                  lineHeight: "1.7",
+                  color: "#2C3E50",
+                  fontWeight: 500,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: "vertical",
+                }}
+              >
+                {entry.text}
+              </p>
+            </motion.div>
+          ))
+        )}
       </div>
 
       {/* Expanded Entry Modal */}
@@ -4132,7 +4626,8 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "rgba(0, 0, 0, 0.5)",
+              backgroundColor: "rgba(29, 84, 109, 0.4)",
+              backdropFilter: "blur(8px)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -4141,34 +4636,36 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
             }}
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
+              initial={{ y: 50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 50, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
               style={{
-                backgroundColor: "var(--card-bg)",
-                borderRadius: "24px",
-                padding: "24px",
+                backgroundColor: "white",
+                borderRadius: "32px",
+                padding: "32px",
                 maxWidth: "500px",
                 width: "100%",
-                maxHeight: "80vh",
+                maxHeight: "85vh",
                 overflow: "auto",
-                boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+                boxShadow: "0 30px 60px rgba(0,0,0,0.15)",
+                border: "1px solid rgba(0,0,0,0.05)",
               }}
             >
               <div
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "16px",
+                  alignItems: "flex-start",
+                  marginBottom: "24px",
                 }}
               >
                 <div>
                   <div
                     style={{
-                      fontSize: "0.85rem",
-                      color: PALETTE.GRAY,
+                      fontSize: "1rem",
+                      color: "#629FAD",
+                      fontWeight: 800,
                       marginBottom: "4px",
                     }}
                   >
@@ -4176,8 +4673,8 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
                   </div>
                   <div
                     style={{
-                      fontSize: "0.85rem",
-                      color: PALETTE.TEAL,
+                      fontSize: "0.9rem",
+                      color: PALETTE.GRAY,
                       fontWeight: 600,
                     }}
                   >
@@ -4187,33 +4684,28 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
                 <button
                   onClick={() => setExpandedEntry(null)}
                   style={{
-                    background: "none",
+                    background: "#F1F6F9",
                     border: "none",
                     cursor: "pointer",
-                    padding: "8px",
-                    borderRadius: "50%",
+                    padding: "10px",
+                    borderRadius: "15px",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    transition: "background 0.2s",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.05)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = "transparent";
+                    color: "#1D546D",
                   }}
                 >
-                  <X size={24} color={PALETTE.GRAY} />
+                  <X size={20} />
                 </button>
               </div>
               <div
                 style={{
-                  fontSize: "1rem",
-                  lineHeight: "1.8",
-                  color: "var(--text-main)",
+                  fontSize: "1.1rem",
+                  lineHeight: "1.9",
+                  color: "#2C3E50",
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-word",
+                  fontWeight: 450,
                 }}
               >
                 {expandedEntry.text}
@@ -4335,106 +4827,277 @@ function GroupsScreen({
       setIsPanelOpen(false);
     }
   };
-  const handleSend = () => {
-    if (newUpdate && activeGroup) {
-      addUpdateToGroup(activeGroup.id, newUpdate);
-      setNewUpdate("");
+  const [attachedImage, setAttachedImage] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setAttachedImage(reader.result);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
+  const handleSend = () => {
+    if ((newUpdate || attachedImage) && activeGroup) {
+      addUpdateToGroup(activeGroup.id, newUpdate, attachedImage);
+      setNewUpdate("");
+      setAttachedImage(null);
+    }
+  };
+
+  const copyInviteCode = () => {
+    navigator.clipboard.writeText(activeGroup.code);
+    // You could use a more subtle toast here if available, but alert works for the demo
+    alert(lang === "en" ? "Invite code copied!" : "تم نسخ رمز الدعوة!");
+  };
+
+  const completedTasks =
+    activeGroup?.tasks?.filter((t) => t.status === "completed").length || 0;
+  const totalTasks = activeGroup?.tasks?.length || 0;
+  const progressPercent =
+    totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
   return (
-    <div className="groups-screen">
-      <header className="header">
-        <h1 style={{ fontSize: "28px", color: PALETTE.DEEP_NAVY }}>
+    <div
+      className="groups-screen fade-in"
+      style={{
+        padding: "24px",
+        height: "100%",
+        overflowY: "auto",
+        paddingBottom: "100px",
+        backgroundColor: "var(--bg-main)",
+      }}
+    >
+      <header
+        className="header"
+        style={{
+          marginBottom: "30px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <h1
+          style={{
+            fontSize: "2.2rem",
+            fontWeight: 800,
+            margin: 0,
+            color: "var(--text-main)",
+          }}
+        >
           {t.groups}
         </h1>
         <button
           className="nav-icon-btn"
           onClick={() => setIsPanelOpen(!isPanelOpen)}
+          style={{
+            background: "#629FAD",
+            color: "white",
+            borderRadius: "15px",
+            width: "48px",
+            height: "48px",
+            boxShadow: "0 8px 16px rgba(98, 159, 173, 0.2)",
+          }}
         >
-          <Plus size={20} />
+          <Plus size={24} />
         </button>
       </header>
 
       {isPanelOpen && (
-        <div
-          className="card slide-up"
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card"
           style={{
-            padding: "20px",
-            marginBottom: "20px",
+            padding: "28px",
+            marginBottom: "30px",
             display: "flex",
             flexDirection: "column",
-            gap: "15px",
+            gap: "28px",
+            borderRadius: "32px",
+            boxShadow: "0 20px 50px rgba(0,0,0,0.1)",
+            border: "2px solid rgba(98, 159, 173, 0.1)",
+            background: "linear-gradient(135deg, white, #f8fbfd)",
+            position: "relative",
+            zIndex: 10,
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <h3 style={{ fontSize: "0.9rem" }}>{t.createGroup}</h3>
+          <button
+            onClick={() => setIsPanelOpen(false)}
+            style={{
+              position: "absolute",
+              top: "15px",
+              right: "15px",
+              background: "none",
+              border: "none",
+              color: PALETTE.GRAY,
+            }}
+          >
+            <X size={20} />
+          </button>
+
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div
+                style={{
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "10px",
+                  background: "rgba(98, 159, 173, 0.1)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#629FAD",
+                }}
+              >
+                <Plus size={18} />
+              </div>
+              <h3
+                style={{
+                  fontSize: "1.1rem",
+                  fontWeight: 800,
+                  margin: 0,
+                  color: "#1D546D",
+                }}
+              >
+                {t.createGroup}
+              </h3>
+            </div>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.85rem",
+                color: PALETTE.GRAY,
+                marginBottom: "5px",
+              }}
+            >
+              {lang === "en"
+                ? "Start a new journey with your team"
+                : "ابدأ رحلة جديدة مع فريقك"}
+            </p>
             <div style={{ display: "flex", gap: "10px" }}>
               <input
                 type="text"
                 placeholder={t.groupName}
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}
-                style={editInputStyle(lang)}
+                style={{ ...editInputStyle(lang), height: "54px" }}
               />
               <button
                 onClick={handleCreate}
+                className="btn-primary"
                 style={{
-                  background: PALETTE.TEAL,
-                  color: "white",
-                  border: "none",
-                  padding: "10px 15px",
-                  borderRadius: "12px",
-                  fontWeight: 600,
+                  width: "90px",
+                  borderRadius: "18px",
+                  background: "#629FAD",
                 }}
               >
                 {t.save}
               </button>
             </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <h3 style={{ fontSize: "0.9rem" }}>{t.joinGroup}</h3>
+
+          <div
+            style={{
+              height: "1px",
+              background: "rgba(0,0,0,0.06)",
+              width: "80%",
+              alignSelf: "center",
+            }}
+          />
+
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div
+                style={{
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "10px",
+                  background: "rgba(211, 84, 0, 0.1)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#D35400",
+                }}
+              >
+                <Users size={18} />
+              </div>
+              <h3
+                style={{
+                  fontSize: "1.1rem",
+                  fontWeight: 800,
+                  margin: 0,
+                  color: "#1D546D",
+                }}
+              >
+                {t.joinGroup}
+              </h3>
+            </div>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.85rem",
+                color: PALETTE.GRAY,
+                marginBottom: "5px",
+              }}
+            >
+              {lang === "en"
+                ? "Use a shared code to join an existing group"
+                : "استخدم رمزاً مشتركاً للانضمام إلى مجموعة موجودة"}
+            </p>
             <div style={{ display: "flex", gap: "10px" }}>
               <input
                 type="text"
                 placeholder={t.enterGroupCode}
                 value={groupCode}
                 onChange={(e) => setGroupCode(e.target.value)}
-                style={editInputStyle(lang)}
+                style={{ ...editInputStyle(lang), height: "54px" }}
               />
               <button
                 onClick={handleJoin}
+                className="btn-primary"
                 style={{
-                  background: PALETTE.NAVY,
-                  color: "white",
-                  border: "none",
-                  padding: "10px 15px",
-                  borderRadius: "12px",
-                  fontWeight: 600,
+                  width: "90px",
+                  borderRadius: "18px",
+                  backgroundColor: PALETTE.NAVY,
                 }}
               >
                 {t.save}
               </button>
             </div>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {groups.length === 0 ? (
         <div
-          style={{ textAlign: "center", padding: "40px", color: PALETTE.GRAY }}
+          style={{
+            textAlign: "center",
+            padding: "80px 40px",
+            color: PALETTE.GRAY,
+          }}
         >
-          {t.noGroups}
+          <Users size={60} style={{ opacity: 0.2, marginBottom: "20px" }} />
+          <p style={{ fontWeight: 600 }}>{t.noGroups}</p>
         </div>
       ) : (
         <>
           <div
+            className="no-scrollbar"
             style={{
               display: "flex",
-              gap: "10px",
+              gap: "12px",
               overflowX: "auto",
-              paddingBottom: "15px",
-              scrollbarWidth: "none",
+              paddingBottom: "20px",
+              marginBottom: "10px",
             }}
           >
             {groups.map((g) => (
@@ -4442,16 +5105,20 @@ function GroupsScreen({
                 key={g.id}
                 onClick={() => setActiveGroupId(g.id)}
                 style={{
-                  padding: "12px 20px",
+                  padding: "14px 24px",
                   borderRadius: "20px",
                   border: "none",
-                  background: activeGroupId === g.id ? PALETTE.TEAL : "white",
-                  color: activeGroupId === g.id ? "white" : PALETTE.NAVY,
-                  boxShadow: "var(--shadow-soft)",
-                  fontWeight: 600,
+                  background: activeGroupId === g.id ? "#629FAD" : "white",
+                  color: activeGroupId === g.id ? "white" : "#1D546D",
+                  boxShadow:
+                    activeGroupId === g.id
+                      ? "0 8px 20px rgba(98, 159, 173, 0.3)"
+                      : "var(--shadow-soft)",
+                  fontWeight: 700,
                   whiteSpace: "nowrap",
-                  transition: "all 0.3s ease",
+                  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                   cursor: "pointer",
+                  fontSize: "0.95rem",
                 }}
               >
                 {g.name}
@@ -4461,192 +5128,491 @@ function GroupsScreen({
 
           {activeGroup && (
             <motion.div
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               key={activeGroup.id}
             >
+              {/* Group Overview Card */}
               <div
                 className="card"
                 style={{
                   padding: "24px",
-                  marginBottom: "24px",
+                  marginBottom: "30px",
                   borderRadius: "32px",
-                  border: `2px solid ${PALETTE.ICE}`,
+                  background: "white",
+                  boxShadow: "0 10px 40px rgba(0,0,0,0.04)",
+                  border: "1px solid rgba(0,0,0,0.03)",
                 }}
               >
                 <div
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
-                    alignItems: "center",
+                    alignItems: "flex-start",
                     marginBottom: "20px",
                   }}
                 >
                   <div>
                     <h2
                       style={{
-                        fontSize: "1.4rem",
-                        margin: "0 0 5px 0",
-                        color: PALETTE.DEEP_NAVY,
+                        fontSize: "1.6rem",
+                        fontWeight: 900,
+                        margin: "0 0 6px 0",
+                        color: "#1D546D",
                       }}
                     >
                       {activeGroup.name}
                     </h2>
-                    <span
+                    <div
                       style={{
-                        fontSize: "0.75rem",
-                        background:
-                          activeGroup.role === "manager"
-                            ? PALETTE.BEIGE
-                            : PALETTE.ICE,
-                        padding: "4px 12px",
-                        borderRadius: "10px",
-                        fontWeight: 700,
-                        color: PALETTE.DEEP_NAVY,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.5px",
+                        display: "flex",
+                        gap: "8px",
+                        alignItems: "center",
                       }}
                     >
-                      {activeGroup.role === "manager"
-                        ? t.roleManager
-                        : t.roleMember}
-                    </span>
+                      <span
+                        style={{
+                          fontSize: "0.75rem",
+                          background:
+                            activeGroup.role === "manager"
+                              ? "rgba(234, 224, 207, 0.5)"
+                              : "rgba(241, 246, 249, 1)",
+                          padding: "4px 12px",
+                          borderRadius: "10px",
+                          fontWeight: 800,
+                          color: "#1D546D",
+                          border: "1px solid rgba(0,0,0,0.05)",
+                        }}
+                      >
+                        {activeGroup.role === "manager"
+                          ? t.roleManager
+                          : t.roleMember}
+                      </span>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: "#4CAF50",
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: "0.75rem",
+                            color: PALETTE.GRAY,
+                            fontWeight: 600,
+                          }}
+                        >
+                          4 {lang === "en" ? "active" : "نشط"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                   <div style={{ textAlign: lang === "ar" ? "left" : "right" }}>
                     <span
                       style={{
                         fontSize: "0.7rem",
                         color: PALETTE.GRAY,
-                        fontWeight: 600,
+                        fontWeight: 800,
+                        display: "block",
+                        marginBottom: "4px",
                       }}
                     >
-                      CODE
+                      INVITE CODE
                     </span>
                     <div
+                      onClick={copyInviteCode}
                       style={{
-                        fontWeight: 800,
-                        color: PALETTE.TEAL,
-                        fontSize: "1.1rem",
+                        padding: "8px 16px",
+                        background: "#F8FBFD",
+                        borderRadius: "12px",
+                        fontWeight: 900,
+                        color: "#D35400",
+                        fontSize: "1rem",
+                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.03)",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
                       }}
                     >
                       {activeGroup.code}
+                      <LinkIcon size={14} style={{ opacity: 0.5 }} />
                     </div>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setScreen("tasks")}
-                  className="btn-primary"
+                {/* Progress Mini View */}
+                <div style={{ marginBottom: "20px" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: "0.85rem",
+                      marginBottom: "8px",
+                      fontWeight: 700,
+                      color: PALETTE.GRAY,
+                    }}
+                  >
+                    <span>
+                      {lang === "en" ? "Team Progress" : "تقدم الفريق"}
+                    </span>
+                    <span>{Math.round(progressPercent)}%</span>
+                  </div>
+                  <div
+                    style={{
+                      height: "12px",
+                      background: "#F1F6F9",
+                      borderRadius: "10px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progressPercent}%` }}
+                      style={{
+                        height: "100%",
+                        background: "linear-gradient(90deg, #629FAD, #D35400)",
+                        borderRadius: "10px",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <button
+                    onClick={() => setScreen("tasks")}
+                    className="btn-primary"
+                    style={{
+                      flex: 1,
+                      height: "54px",
+                      borderRadius: "18px",
+                      background: "#1D546D",
+                      color: "white",
+                      fontSize: "0.95rem",
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "10px",
+                    }}
+                  >
+                    <ClipboardList size={20} />
+                    {lang === "en" ? "Task Workspace" : "مساحة المهام"}
+                  </button>
+                  <button
+                    style={{
+                      width: "54px",
+                      height: "54px",
+                      borderRadius: "18px",
+                      background: "#F1F6F9",
+                      border: "none",
+                      color: "#1D546D",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Users size={20} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Group Feed Section */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: "20px",
+                  padding: "0 5px",
+                }}
+              >
+                <h3
                   style={{
-                    height: "52px",
-                    fontSize: "0.95rem",
-                    background: PALETTE.ICE,
-                    color: PALETTE.NAVY,
-                    borderRadius: "16px",
-                    fontWeight: 600,
+                    margin: 0,
+                    fontSize: "1.2rem",
+                    fontWeight: 800,
+                    color: "#1D546D",
                   }}
                 >
-                  {t.viewGroup}
+                  {t.groupFeed}
+                </h3>
+                <div
+                  style={{
+                    padding: "4px 10px",
+                    background: "#E8F5E9",
+                    color: "#2E7D32",
+                    borderRadius: "8px",
+                    fontSize: "0.75rem",
+                    fontWeight: 800,
+                  }}
+                >
+                  LIVE UPDATES
+                </div>
+              </div>
+              {/* Feed Input */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: "12px",
+                  background: "white",
+                  padding: "15px",
+                  borderRadius: "24px",
+                  boxShadow: "0 4px 15px rgba(0,0,0,0.03)",
+                  marginBottom: "25px",
+                  border: "1px solid rgba(0,0,0,0.03)",
+                }}
+              >
+                <div
+                  style={{
+                    width: "40px",
+                    height: "40px",
+                    borderRadius: "12px",
+                    background: "rgba(98, 159, 173, 0.2)",
+                    color: "#629FAD",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: 800,
+                  }}
+                >
+                  YO
+                </div>
+                <input
+                  type="text"
+                  placeholder={
+                    lang === "en"
+                      ? "Share an update with the team..."
+                      : "شارك تحديثاً مع الفريق..."
+                  }
+                  value={newUpdate}
+                  onChange={(e) => setNewUpdate(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                  style={{
+                    ...editInputStyle(lang),
+                    background: "transparent",
+                    border: "none",
+                    padding: "0",
+                    fontSize: "0.95rem",
+                  }}
+                />
+                <input
+                  type="file"
+                  hidden
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={handleImageSelect}
+                />
+                <button
+                  onClick={() => fileInputRef.current.click()}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: attachedImage ? "#629FAD" : PALETTE.GRAY,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    padding: "8px",
+                    borderRadius: "10px",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  <ImageIcon size={20} />
+                </button>
+                <button
+                  onClick={handleSend}
+                  disabled={!newUpdate && !attachedImage}
+                  style={{
+                    background:
+                      newUpdate || attachedImage
+                        ? "#629FAD"
+                        : "rgba(0,0,0,0.05)",
+                    color: "white",
+                    border: "none",
+                    width: "40px",
+                    height: "40px",
+                    borderRadius: "12px",
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    cursor: "pointer",
+                    transition: "all 0.3s ease",
+                  }}
+                >
+                  <MessageCircle size={20} />
                 </button>
               </div>
 
-              <h3 style={{ marginBottom: "15px", paddingLeft: "5px" }}>
-                {t.groupFeed}
-              </h3>
+              {attachedImage && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  style={{
+                    position: "relative",
+                    marginBottom: "20px",
+                    width: "120px",
+                    height: "120px",
+                    borderRadius: "16px",
+                    overflow: "hidden",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                    border: "3px solid white",
+                  }}
+                >
+                  <img
+                    src={attachedImage}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
+                  />
+                  <button
+                    onClick={() => setAttachedImage(null)}
+                    style={{
+                      position: "absolute",
+                      top: "5px",
+                      right: "5px",
+                      background: "rgba(0,0,0,0.5)",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "50%",
+                      width: "24px",
+                      height: "24px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                </motion.div>
+              )}
+
               <div
                 className="feed-container"
                 style={{
                   display: "flex",
                   flexDirection: "column",
-                  gap: "15px",
+                  gap: "18px",
                   marginBottom: "100px",
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "12px",
-                    background: "white",
-                    padding: "10px",
-                    borderRadius: "20px",
-                    boxShadow: "var(--shadow-soft)",
-                  }}
-                >
-                  <input
-                    type="text"
-                    placeholder={t.sendUpdate}
-                    value={newUpdate}
-                    onChange={(e) => setNewUpdate(e.target.value)}
+                {activeGroup.updates.length === 0 ? (
+                  <div
                     style={{
-                      ...editInputStyle(lang),
-                      background: PALETTE.ICE,
-                      border: "none",
-                    }}
-                  />
-                  <button
-                    onClick={handleSend}
-                    style={{
-                      background: PALETTE.TEAL,
-                      color: "white",
-                      border: "none",
-                      minWidth: "48px",
-                      height: "48px",
-                      borderRadius: "15px",
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      cursor: "pointer",
+                      textAlign: "center",
+                      padding: "40px",
+                      opacity: 0.3,
                     }}
                   >
-                    <MessageCircle size={22} />
-                  </button>
-                </div>
-
-                {activeGroup.updates.map((update) => (
-                  <motion.div
-                    initial={{ scale: 0.95, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    key={update.id}
-                    className="card"
-                    style={{
-                      padding: "18px",
-                      marginBottom: 0,
-                      borderRadius: "24px",
-                      boxShadow: "0 4px 15px rgba(0,0,0,0.03)",
-                    }}
-                  >
-                    <div
+                    <MessageCircle size={40} style={{ marginBottom: "10px" }} />
+                    <p>
+                      {lang === "en" ? "No updates yet" : "لا توجد تحديثات بعد"}
+                    </p>
+                  </div>
+                ) : (
+                  activeGroup.updates.map((update, idx) => (
+                    <motion.div
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ delay: idx * 0.1 }}
+                      key={update.id}
                       style={{
                         display: "flex",
-                        justifyContent: "space-between",
-                        marginBottom: "8px",
+                        gap: "15px",
+                        padding: "15px 0",
+                        borderBottom: "1px solid rgba(0,0,0,0.05)",
                       }}
                     >
-                      <span
+                      <div
                         style={{
-                          fontWeight: 700,
-                          fontSize: "0.9rem",
-                          color: PALETTE.TEAL,
+                          width: "45px",
+                          height: "45px",
+                          borderRadius: "15px",
+                          background: PALETTE.ICE,
+                          color: "#1D546D",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontWeight: 800,
+                          fontSize: "0.85rem",
+                          flexShrink: 0,
                         }}
                       >
-                        {update.user}
-                      </span>
-                      <span style={{ fontSize: "0.7rem", color: PALETTE.GRAY }}>
-                        {update.time}
-                      </span>
-                    </div>
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: "1rem",
-                        color: PALETTE.DEEP_NAVY,
-                        lineHeight: "1.5",
-                      }}
-                    >
-                      {update.text}
-                    </p>
-                  </motion.div>
-                ))}
+                        {update.user.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: "6px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontWeight: 800,
+                              color: "#1D546D",
+                              fontSize: "0.95rem",
+                            }}
+                          >
+                            {update.user}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: "0.75rem",
+                              color: PALETTE.GRAY,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {update.time}
+                          </span>
+                        </div>
+                        <p
+                          style={{
+                            margin: 0,
+                            fontSize: "0.95rem",
+                            lineHeight: "1.5",
+                            color: "var(--text-main)",
+                            marginBottom: update.image ? "10px" : 0,
+                          }}
+                        >
+                          {update.text}
+                        </p>
+                        {update.image && (
+                          <div
+                            style={{
+                              borderRadius: "16px",
+                              overflow: "hidden",
+                              border: "1px solid rgba(0,0,0,0.05)",
+                            }}
+                          >
+                            <img
+                              src={update.image}
+                              style={{
+                                width: "100%",
+                                display: "block",
+                                maxHeight: "300px",
+                                objectFit: "cover",
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  ))
+                )}
               </div>
             </motion.div>
           )}
