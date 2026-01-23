@@ -717,9 +717,8 @@ export default function App() {
     const id = "p" + Date.now();
     const newNote = {
       id,
-      title: title || (lang === "en" ? "New Note" : "ملاحظة جديدة"),
-      content:
-        content || (lang === "en" ? "Note content..." : "محتوى الملاحظة..."),
+      title: title || "",
+      content: content || "",
       color: "#394867",
       hasVoice: false,
       hasImage: false,
@@ -841,8 +840,11 @@ export default function App() {
             theme={theme}
             toggleTheme={toggleTheme}
             handleLogout={handleLogout}
+            journals={journals}
           />
         );
+      case "all-journals":
+        return <AllJournalsScreen {...commonProps} journals={journals} />;
       default:
         return (
           <HomeScreen
@@ -1412,6 +1414,7 @@ function HomeScreen({
   const [expandedNoteId, setExpandedNoteId] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingNoteId, setRecordingNoteId] = useState(null);
+  const [showAlarmNotification, setShowAlarmNotification] = useState(false);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
@@ -1536,6 +1539,76 @@ function HomeScreen({
     }
   }, []);
 
+  // Alarm functionality
+  useEffect(() => {
+    if (!journalReminder) return;
+
+    // Only run alarm for today's date
+    const today = formatDate(new Date());
+    if (selectedDate !== today) return;
+
+    let hasTriggered = false;
+
+    const checkReminder = () => {
+      const now = new Date();
+      const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+      if (currentTime === journalReminder && !hasTriggered) {
+        hasTriggered = true;
+
+        // Play notification sound
+        const audio = new Audio(
+          "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIGWm98OScTgwOUKzn77RgGwU7k9n0yXkpBSh+zPLaizsKElyx6OyrWBUIQ5zd8sFuJAUuhM/z1YU2Bhxqvf",
+        );
+        audio.play().catch((e) => console.log("Audio play failed:", e));
+
+        // Show custom notification modal
+        setShowAlarmNotification(true);
+
+        // Request notification permission if not granted
+        if (Notification.permission === "granted") {
+          new Notification(
+            lang === "en" ? "Journal Reminder 📝" : "تذكير بالمذكرات 📝",
+            {
+              body:
+                journalTitle ||
+                (lang === "en"
+                  ? "Time to write in your journal!"
+                  : "حان وقت الكتابة في مذكراتك!"),
+              icon: "/logo.png",
+              badge: "/logo.png",
+            },
+          );
+        } else if (Notification.permission !== "denied") {
+          Notification.requestPermission().then((permission) => {
+            if (permission === "granted") {
+              new Notification(
+                lang === "en" ? "Journal Reminder 📝" : "تذكير بالمذكرات 📝",
+                {
+                  body:
+                    journalTitle ||
+                    (lang === "en"
+                      ? "Time to write in your journal!"
+                      : "حان وقت الكتابة في مذكراتك!"),
+                  icon: "/logo.png",
+                  badge: "/logo.png",
+                },
+              );
+            }
+          });
+        }
+      }
+    };
+
+    // Check immediately
+    checkReminder();
+
+    // Check every minute
+    const interval = setInterval(checkReminder, 60000);
+
+    return () => clearInterval(interval);
+  }, [journalReminder, journalTitle, lang, selectedDate]);
+
   return (
     <div className="home-screen">
       <header className="header">
@@ -1563,9 +1636,6 @@ function HomeScreen({
           </p>
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <button className="lang-toggle" onClick={toggleLang}>
-            {lang === "en" ? "AR" : "EN"}
-          </button>
           <div className="profile-img" onClick={() => setScreen("profile")}>
             <img src={user.image} alt="Profile" />
           </div>
@@ -1644,11 +1714,38 @@ function HomeScreen({
               top: "15px",
               right: lang === "ar" ? "auto" : "15px",
               left: lang === "ar" ? "15px" : "auto",
-              opacity: 0.5,
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
             }}
           >
-            <Settings size={18} />
+            {journalReminder && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  background:
+                    "linear-gradient(135deg, rgba(98, 159, 173, 0.2), rgba(98, 159, 173, 0.1))",
+                  padding: "8px 14px",
+                  borderRadius: "15px",
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                  color: "#629FAD",
+                  border: "1.5px solid rgba(98, 159, 173, 0.3)",
+                  boxShadow: "0 4px 12px rgba(98, 159, 173, 0.15)",
+                }}
+              >
+                <Bell
+                  size={16}
+                  style={{ animation: "bell-ring 2s ease-in-out infinite" }}
+                />
+                {journalReminder}
+              </div>
+            )}
+            <Settings size={18} style={{ opacity: 0.5 }} />
           </div>
+
           <h3 style={{ fontSize: "1.2rem", color: "var(--text-main)" }}>
             {journalTitle ||
               (currentJournalEntries.length > 0
@@ -2444,6 +2541,113 @@ function HomeScreen({
           </motion.div>
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {showAlarmNotification && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="note-overlay"
+            style={{
+              backdropFilter: "blur(10px)",
+              background: "rgba(0,0,0,0.6)",
+            }}
+            onClick={() => setShowAlarmNotification(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.8, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.8, y: 50 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: "linear-gradient(135deg, #629FAD 0%, #5F9598 100%)",
+                borderRadius: "30px",
+                padding: "40px 30px",
+                maxWidth: "400px",
+                width: "90%",
+                textAlign: "center",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+                border: "2px solid rgba(255,255,255,0.2)",
+              }}
+            >
+              <motion.div
+                animate={{ rotate: [0, 15, -15, 15, 0] }}
+                transition={{ duration: 0.5, repeat: 3 }}
+                style={{ fontSize: "4rem", marginBottom: "20px" }}
+              >
+                ⏰
+              </motion.div>
+              <h2
+                style={{
+                  color: "white",
+                  fontSize: "1.8rem",
+                  marginBottom: "10px",
+                  fontWeight: 800,
+                }}
+              >
+                {lang === "en" ? "Journal Reminder!" : "تذكير بالمذكرات!"}
+              </h2>
+              <p
+                style={{
+                  color: "rgba(255,255,255,0.9)",
+                  fontSize: "1.1rem",
+                  marginBottom: "30px",
+                }}
+              >
+                {journalTitle ||
+                  (lang === "en"
+                    ? "Time to write in your journal!"
+                    : "حان وقت الكتابة في مذكراتك!")}
+              </p>
+              <button
+                onClick={() => {
+                  setShowAlarmNotification(false);
+                  setIsEditingJournal(true);
+                }}
+                style={{
+                  background: "white",
+                  color: "#629FAD",
+                  border: "none",
+                  borderRadius: "20px",
+                  padding: "15px 40px",
+                  fontSize: "1.1rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  boxShadow: "0 8px 20px rgba(0,0,0,0.2)",
+                  marginRight: lang === "ar" ? "0" : "10px",
+                  marginLeft: lang === "ar" ? "10px" : "0",
+                }}
+              >
+                {lang === "en" ? "Write Now" : "اكتب الآن"}
+              </button>
+              <button
+                onClick={() => setShowAlarmNotification(false)}
+                style={{
+                  background: "rgba(255,255,255,0.2)",
+                  color: "white",
+                  border: "2px solid white",
+                  borderRadius: "20px",
+                  padding: "15px 40px",
+                  fontSize: "1.1rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {lang === "en" ? "Later" : "لاحقاً"}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <style>{`
+        @keyframes bell-ring {
+          0%, 100% { transform: rotate(0deg); }
+          10%, 30% { transform: rotate(-10deg); }
+          20%, 40% { transform: rotate(10deg); }
+        }
+      `}</style>
     </div>
   );
 }
@@ -3347,9 +3551,18 @@ function ProfileScreen({
   toggleTheme,
   setScreen,
   handleLogout,
+  journals,
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({ ...user });
+
+  // Calculate total number of journal entries
+  const totalJournals = Object.values(journals).reduce((total, dayData) => {
+    if (Array.isArray(dayData)) {
+      return total + dayData.length;
+    }
+    return total + (dayData.entries?.length || 0);
+  }, 0);
 
   // Sync formData when user changes or entering edit mode
   React.useEffect(() => {
@@ -3596,17 +3809,35 @@ function ProfileScreen({
             {t.streak}
           </div>
         </div>
-        <div style={statCardStyle}>
+        <button
+          style={{
+            ...statCardStyle,
+            cursor: "pointer",
+            transition: "transform 0.2s, box-shadow 0.2s",
+            border: "1px solid rgba(0,0,0,0.02)",
+          }}
+          onClick={() => setScreen("all-journals")}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translateY(-2px)";
+            e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "translateY(0)";
+            e.currentTarget.style.boxShadow = "var(--shadow-soft)";
+          }}
+        >
           <MessageCircle
             size={22}
             color={PALETTE.GREEN}
             style={{ margin: "0 auto 6px" }}
           />
-          <div style={{ fontWeight: 700, fontSize: "1rem" }}>42</div>
+          <div style={{ fontWeight: 700, fontSize: "1rem" }}>
+            {totalJournals}
+          </div>
           <div style={{ fontSize: "0.65rem", color: PALETTE.GRAY }}>
             {t.journal}s
           </div>
-        </div>
+        </button>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -3701,6 +3932,296 @@ function ProfileScreen({
           <div />
         </ProfileMenuItem>
       </div>
+    </div>
+  );
+}
+
+function AllJournalsScreen({ t, lang, setScreen, journals }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [expandedEntry, setExpandedEntry] = useState(null);
+
+  // Convert journals object to array with dates
+  const allJournalEntries = Object.entries(journals)
+    .map(([date, dayData]) => {
+      const entries = Array.isArray(dayData) ? dayData : dayData.entries || [];
+      return entries.map((entry) => ({
+        ...entry,
+        date,
+        dateObj: new Date(date),
+      }));
+    })
+    .flat()
+    .sort((a, b) => b.dateObj - a.dateObj); // Sort by date, newest first
+
+  // Filter journals based on search query
+  const filteredJournals = searchQuery
+    ? allJournalEntries.filter((entry) =>
+        entry.text?.toLowerCase().includes(searchQuery.toLowerCase()),
+      )
+    : allJournalEntries;
+
+  const formatDisplayDate = (dateStr) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString(lang === "en" ? "en-US" : "ar-EG", {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  return (
+    <div className="all-journals-screen">
+      <header className="header" style={{ marginBottom: "20px" }}>
+        <button className="back-btn" onClick={() => setScreen("profile")}>
+          <ChevronLeft
+            size={24}
+            style={{
+              transform: lang === "en" ? "none" : "rotate(180deg)",
+            }}
+          />
+        </button>
+        <h1>{lang === "en" ? "All Journals" : "جميع المذكرات"}</h1>
+        <div style={{ width: "40px" }} />
+      </header>
+
+      <div style={{ padding: "0 20px 20px" }}>
+        {/* Search Bar */}
+        <div style={{ marginBottom: "20px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "12px 16px",
+              backgroundColor: "var(--card-bg)",
+              borderRadius: "16px",
+              boxShadow: "var(--shadow-soft)",
+            }}
+          >
+            <Search size={20} color={PALETTE.GRAY} />
+            <input
+              type="text"
+              placeholder={
+                lang === "en" ? "Search journals..." : "بحث في المذكرات..."
+              }
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                flex: 1,
+                border: "none",
+                outline: "none",
+                fontSize: "0.95rem",
+                backgroundColor: "transparent",
+                color: "var(--text-main)",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div
+          style={{
+            padding: "15px",
+            backgroundColor: "var(--card-bg)",
+            borderRadius: "16px",
+            marginBottom: "20px",
+            boxShadow: "var(--shadow-soft)",
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{ fontSize: "2rem", fontWeight: 700, color: PALETTE.TEAL }}
+          >
+            {filteredJournals.length}
+          </div>
+          <div style={{ fontSize: "0.85rem", color: PALETTE.GRAY }}>
+            {lang === "en" ? "Total Entries" : "إجمالي المذكرات"}
+          </div>
+        </div>
+
+        {/* Journal List */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          {filteredJournals.length === 0 ? (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "40px 20px",
+                color: PALETTE.GRAY,
+              }}
+            >
+              <BookOpen
+                size={48}
+                color={PALETTE.GRAY}
+                style={{ margin: "0 auto 10px" }}
+              />
+              <p>{lang === "en" ? "No journals found" : "لا توجد مذكرات"}</p>
+            </div>
+          ) : (
+            filteredJournals.map((entry, index) => (
+              <motion.div
+                key={entry.id || index}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                onClick={() => setExpandedEntry(entry)}
+                style={{
+                  padding: "16px",
+                  backgroundColor: "var(--card-bg)",
+                  borderRadius: "16px",
+                  boxShadow: "var(--shadow-soft)",
+                  cursor: "pointer",
+                  transition: "transform 0.2s, box-shadow 0.2s",
+                }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "8px",
+                  }}
+                >
+                  <div style={{ fontSize: "0.75rem", color: PALETTE.GRAY }}>
+                    {formatDisplayDate(entry.date)}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.75rem",
+                      color: PALETTE.TEAL,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {entry.time}
+                  </div>
+                </div>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "0.9rem",
+                    lineHeight: "1.6",
+                    color: "var(--text-main)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 3,
+                    WebkitBoxOrient: "vertical",
+                  }}
+                >
+                  {entry.text}
+                </p>
+              </motion.div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Expanded Entry Modal */}
+      <AnimatePresence>
+        {expandedEntry && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setExpandedEntry(null)}
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0, 0, 0, 0.5)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 1000,
+              padding: "20px",
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                backgroundColor: "var(--card-bg)",
+                borderRadius: "24px",
+                padding: "24px",
+                maxWidth: "500px",
+                width: "100%",
+                maxHeight: "80vh",
+                overflow: "auto",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "16px",
+                }}
+              >
+                <div>
+                  <div
+                    style={{
+                      fontSize: "0.85rem",
+                      color: PALETTE.GRAY,
+                      marginBottom: "4px",
+                    }}
+                  >
+                    {formatDisplayDate(expandedEntry.date)}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.85rem",
+                      color: PALETTE.TEAL,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {expandedEntry.time}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setExpandedEntry(null)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "8px",
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "background 0.2s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.05)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
+                  <X size={24} color={PALETTE.GRAY} />
+                </button>
+              </div>
+              <div
+                style={{
+                  fontSize: "1rem",
+                  lineHeight: "1.8",
+                  color: "var(--text-main)",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}
+              >
+                {expandedEntry.text}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
