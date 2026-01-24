@@ -1,24 +1,5 @@
 import React, { useState, useEffect } from "react";
-import {
-  Users,
-  Plus,
-  LogIn,
-  Send,
-  ChevronLeft,
-  Copy,
-  Check,
-  CheckCircle2,
-  Circle,
-  Paperclip,
-  Image as ImageIcon,
-  FileText,
-  Trash2,
-  UserPlus,
-  MessageSquare,
-  ListTodo,
-  Bell,
-  Upload,
-} from "lucide-react";
+import { Users, Plus, LogIn, ChevronLeft, Copy, Check } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { GroupDetailScreen } from "./GroupDetailScreen";
 
@@ -33,28 +14,15 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (user?.uid) {
-      fetchUserGroups();
-    }
+    if (user?.uid) fetchUserGroups();
   }, [user]);
 
   const fetchUserGroups = async () => {
     try {
       const { data, error } = await supabase
         .from("group_members")
-        .select(
-          `
-          role,
-          groups (
-            id,
-            name,
-            code,
-            created_at
-          )
-        `,
-        )
+        .select(`role, groups (id, name, code, created_at)`)
         .eq("user_id", user.uid);
-
       if (error) throw error;
       setGroups(
         data?.map((item) => ({ ...item.groups, role: item.role })) || [],
@@ -64,49 +32,28 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
     }
   };
 
-  const generateGroupCode = () => {
-    return Math.random().toString(36).substring(2, 8).toUpperCase();
-  };
-
   const createGroup = async () => {
     if (!newGroupName.trim()) return;
-
     setLoading(true);
     try {
-      const groupCode = generateGroupCode();
-
+      const groupCode = Math.random()
+        .toString(36)
+        .substring(2, 8)
+        .toUpperCase();
       const { data: newGroup, error: groupError } = await supabase
         .from("groups")
-        .insert([
-          {
-            name: newGroupName,
-            code: groupCode,
-            created_by: user.uid,
-          },
-        ])
+        .insert([{ name: newGroupName, code: groupCode, created_by: user.uid }])
         .select()
         .single();
-
       if (groupError) throw groupError;
-
-      const { error: memberError } = await supabase
+      await supabase
         .from("group_members")
-        .insert([
-          {
-            group_id: newGroup.id,
-            user_id: user.uid,
-            role: "admin",
-          },
-        ]);
-
-      if (memberError) throw memberError;
-
+        .insert([{ group_id: newGroup.id, user_id: user.uid, role: "admin" }]);
       setNewGroupName("");
       setShowCreateModal(false);
       fetchUserGroups();
     } catch (error) {
-      console.error("Error creating group:", error);
-      alert(lang === "en" ? "Failed to create group" : "فشل إنشاء المجموعة");
+      alert("Failed to create group");
     } finally {
       setLoading(false);
     }
@@ -114,7 +61,6 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
 
   const joinGroup = async () => {
     if (!joinCode.trim()) return;
-
     setLoading(true);
     try {
       const { data: group, error: groupError } = await supabase
@@ -122,264 +68,156 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
         .select("*")
         .eq("code", joinCode.toUpperCase())
         .single();
-
       if (groupError || !group) {
-        alert(lang === "en" ? "Invalid group code" : "كود المجموعة غير صحيح");
+        alert("Invalid code");
         return;
       }
-
-      const { data: existing } = await supabase
+      await supabase
         .from("group_members")
-        .select("*")
-        .eq("group_id", group.id)
-        .eq("user_id", user.uid)
-        .single();
-
-      if (existing) {
-        alert(lang === "en" ? "Already a member" : "أنت عضو بالفعل");
-        return;
-      }
-
-      const { error: joinError } = await supabase.from("group_members").insert([
-        {
-          group_id: group.id,
-          user_id: user.uid,
-          role: "member",
-        },
-      ]);
-
-      if (joinError) throw joinError;
-
+        .insert([{ group_id: group.id, user_id: user.uid, role: "member" }]);
       setJoinCode("");
       setShowJoinModal(false);
       fetchUserGroups();
     } catch (error) {
-      console.error("Error joining group:", error);
-      alert(lang === "en" ? "Failed to join group" : "فشل الانضمام للمجموعة");
+      alert("Already a member or error");
     } finally {
       setLoading(false);
     }
   };
 
-  const copyCode = (code) => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
     <div
-      className="groups-screen"
-      style={{ padding: "20px", paddingBottom: "100px" }}
+      className="groups-screen-container"
+      style={{
+        padding: "16px",
+        paddingBottom: "100px",
+        maxWidth: "100vw",
+        overflowX: "hidden",
+      }}
     >
-      <header className="header" style={{ marginBottom: "25px" }}>
-        <button className="nav-icon-btn" onClick={() => setScreen("home")}>
+      <header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "20px",
+        }}
+      >
+        <button
+          onClick={() => setScreen("home")}
+          style={{
+            background: "#f0f0f0",
+            border: "none",
+            borderRadius: "12px",
+            padding: "10px",
+          }}
+        >
           <ChevronLeft
             size={24}
             style={{ transform: lang === "ar" ? "rotate(180deg)" : "none" }}
           />
         </button>
-        <h1 style={{ flex: 1, margin: 0 }}>
+        <h1 style={{ fontSize: "20px", fontWeight: "bold", margin: 0 }}>
           {lang === "en" ? "Groups" : "المجموعات"}
         </h1>
         <button
-          className="nav-icon-btn"
           onClick={() => setShowCreateModal(true)}
+          style={{
+            background: "#629FAD",
+            color: "white",
+            border: "none",
+            borderRadius: "12px",
+            padding: "10px",
+          }}
         >
           <Plus size={24} />
         </button>
       </header>
 
-      <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
-        <button
-          onClick={() => setShowJoinModal(true)}
-          style={{
-            flex: 1,
-            padding: "12px",
-            background: "#629FAD",
-            color: "white",
-            border: "none",
-            borderRadius: "12px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            cursor: "pointer",
-          }}
-        >
-          <LogIn size={20} />
-          {lang === "en" ? "Join Group" : "انضم لمجموعة"}
-        </button>
-      </div>
+      <button
+        onClick={() => setShowJoinModal(true)}
+        style={{
+          width: "100%",
+          padding: "14px",
+          background: "white",
+          border: "1px dashed #629FAD",
+          color: "#629FAD",
+          borderRadius: "15px",
+          marginBottom: "20px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "10px",
+          fontSize: "16px",
+          fontWeight: "600",
+        }}
+      >
+        <LogIn size={20} /> {lang === "en" ? "Join Group" : "انضم لمجموعة"}
+      </button>
 
-      {groups.length === 0 ? (
-        <div
-          style={{ textAlign: "center", padding: "40px 20px", color: "#999" }}
-        >
-          <Users size={48} style={{ margin: "0 auto 16px", opacity: 0.5 }} />
-          <p>{lang === "en" ? "No groups yet" : "لا توجد مجموعات بعد"}</p>
-          <p style={{ fontSize: "14px" }}>
-            {lang === "en"
-              ? "Create or join a group to get started"
-              : "أنشئ أو انضم لمجموعة للبدء"}
-          </p>
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {groups.map((group) => (
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "12px" }}>
+        {groups.map((group) => (
+          <div
+            key={group.id}
+            onClick={() => setSelectedGroup(group)}
+            style={{
+              padding: "16px",
+              background: "white",
+              borderRadius: "18px",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+              border: "1px solid #f0f0f0",
+              cursor: "pointer",
+            }}
+          >
             <div
-              key={group.id}
-              onClick={() => setSelectedGroup(group)}
               style={{
-                padding: "16px",
-                background: "white",
-                borderRadius: "16px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-                cursor: "pointer",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "start",
+                marginBottom: "8px",
               }}
             >
-              <div
+              <h3 style={{ margin: 0, fontSize: "17px", color: "#333" }}>
+                {group.name}
+              </h3>
+              <span
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
+                  fontSize: "10px",
+                  padding: "4px 8px",
+                  background: group.role === "admin" ? "#E8F5E9" : "#E3F2FD",
+                  color: group.role === "admin" ? "#2E7D32" : "#1565C0",
+                  borderRadius: "8px",
+                  fontWeight: "600",
                 }}
               >
-                <div>
-                  <h3 style={{ margin: "0 0 8px 0", fontSize: "18px" }}>
-                    {group.name}
-                  </h3>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "8px",
-                      alignItems: "center",
-                    }}
-                  >
-                    <span style={{ fontSize: "14px", color: "#666" }}>
-                      {lang === "en" ? "Code:" : "الكود:"} {group.code}
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        copyCode(group.code);
-                      }}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        padding: "4px",
-                      }}
-                    >
-                      {copied ? (
-                        <Check size={16} color="#4CAF50" />
-                      ) : (
-                        <Copy size={16} color="#666" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-                <div
-                  style={{
-                    padding: "4px 12px",
-                    background: group.role === "admin" ? "#4CAF50" : "#629FAD",
-                    color: "white",
-                    borderRadius: "12px",
-                    fontSize: "12px",
-                  }}
-                >
-                  {group.role === "admin"
-                    ? lang === "en"
-                      ? "Admin"
-                      : "مشرف"
-                    : lang === "en"
-                      ? "Member"
-                      : "عضو"}
-                </div>
-              </div>
+                {group.role === "admin"
+                  ? lang === "en"
+                    ? "Admin"
+                    : "مشرف"
+                  : lang === "en"
+                    ? "Member"
+                    : "عضو"}
+              </span>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Modals */}
-      {showCreateModal && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-        >
-          <div
-            style={{
-              background: "white",
-              padding: "24px",
-              borderRadius: "20px",
-              width: "90%",
-              maxWidth: "400px",
-            }}
-          >
-            <h2 style={{ margin: "0 0 20px 0" }}>
-              {lang === "en" ? "Create New Group" : "إنشاء مجموعة جديدة"}
-            </h2>
-            <input
-              type="text"
-              value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
-              placeholder={lang === "en" ? "Group name" : "اسم المجموعة"}
+            <div
               style={{
-                width: "100%",
-                padding: "12px",
-                border: "1px solid #ddd",
-                borderRadius: "12px",
-                marginBottom: "16px",
-                fontSize: "16px",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                color: "#888",
+                fontSize: "12px",
               }}
-            />
-            <div style={{ display: "flex", gap: "12px" }}>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                style={{
-                  flex: 1,
-                  padding: "12px",
-                  background: "#f5f5f5",
-                  border: "none",
-                  borderRadius: "12px",
-                  cursor: "pointer",
-                }}
-              >
-                {lang === "en" ? "Cancel" : "إلغاء"}
-              </button>
-              <button
-                onClick={createGroup}
-                disabled={loading || !newGroupName.trim()}
-                style={{
-                  flex: 1,
-                  padding: "12px",
-                  background: "#629FAD",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "12px",
-                  cursor: loading ? "not-allowed" : "pointer",
-                  opacity: loading || !newGroupName.trim() ? 0.5 : 1,
-                }}
-              >
-                {loading ? "..." : lang === "en" ? "Create" : "إنشاء"}
-              </button>
+            >
+              <span>
+                {lang === "en" ? "Code:" : "الكود:"} {group.code}
+              </span>
             </div>
           </div>
-        </div>
-      )}
+        ))}
+      </div>
 
-      {showJoinModal && (
+      {/* Responsive Modals */}
+      {(showCreateModal || showJoinModal) && (
         <div
           style={{
             position: "fixed",
@@ -387,72 +225,82 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
             left: 0,
             right: 0,
             bottom: 0,
-            background: "rgba(0,0,0,0.5)",
+            background: "rgba(0,0,0,0.6)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            zIndex: 1000,
+            zIndex: 3000,
+            padding: "20px",
           }}
         >
           <div
             style={{
               background: "white",
               padding: "24px",
-              borderRadius: "20px",
-              width: "90%",
+              borderRadius: "24px",
+              width: "100%",
               maxWidth: "400px",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.2)",
             }}
           >
-            <h2 style={{ margin: "0 0 20px 0" }}>
-              {lang === "en" ? "Join Group" : "الانضمام لمجموعة"}
+            <h2 style={{ margin: "0 0 16px 0", fontSize: "18px" }}>
+              {showCreateModal
+                ? lang === "en"
+                  ? "Create Group"
+                  : "إنشاء مجموعة"
+                : lang === "en"
+                  ? "Join Group"
+                  : "انضمام"}
             </h2>
             <input
               type="text"
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-              placeholder={
-                lang === "en" ? "Enter group code" : "أدخل كود المجموعة"
+              value={showCreateModal ? newGroupName : joinCode}
+              onChange={(e) =>
+                showCreateModal
+                  ? setNewGroupName(e.target.value)
+                  : setJoinCode(e.target.value.toUpperCase())
               }
+              placeholder="..."
               style={{
                 width: "100%",
                 padding: "12px",
-                border: "1px solid #ddd",
                 borderRadius: "12px",
-                marginBottom: "16px",
+                border: "1px solid #eee",
+                background: "#f9f9f9",
+                marginBottom: "20px",
                 fontSize: "16px",
-                textTransform: "uppercase",
               }}
-              maxLength={6}
             />
-            <div style={{ display: "flex", gap: "12px" }}>
+            <div style={{ display: "flex", gap: "10px" }}>
               <button
-                onClick={() => setShowJoinModal(false)}
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setShowJoinModal(false);
+                }}
                 style={{
                   flex: 1,
                   padding: "12px",
-                  background: "#f5f5f5",
-                  border: "none",
                   borderRadius: "12px",
-                  cursor: "pointer",
+                  border: "none",
+                  background: "#f0f0f0",
+                  color: "#666",
                 }}
               >
                 {lang === "en" ? "Cancel" : "إلغاء"}
               </button>
               <button
-                onClick={joinGroup}
-                disabled={loading || joinCode.length !== 6}
+                onClick={showCreateModal ? createGroup : joinGroup}
                 style={{
                   flex: 1,
                   padding: "12px",
+                  borderRadius: "12px",
+                  border: "none",
                   background: "#629FAD",
                   color: "white",
-                  border: "none",
-                  borderRadius: "12px",
-                  cursor: loading ? "not-allowed" : "pointer",
-                  opacity: loading || joinCode.length !== 6 ? 0.5 : 1,
+                  fontWeight: "bold",
                 }}
               >
-                {loading ? "..." : lang === "en" ? "Join" : "انضم"}
+                {loading ? "..." : lang === "en" ? "Submit" : "تم"}
               </button>
             </div>
           </div>
@@ -470,5 +318,3 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
     </div>
   );
 }
-
-// Component continues in next file due to size...
