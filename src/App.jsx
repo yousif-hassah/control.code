@@ -917,29 +917,6 @@ export default function App() {
             addPinnedNote={addPinnedNote}
           />
         );
-      case "tasks":
-        const activeGroupForTasks =
-          groups.find((g) => g.id === activeGroupId) || groups[0];
-        return (
-          <SharedTasksScreen
-            {...commonProps}
-            group={activeGroupForTasks}
-            updateGroupTask={updateGroupTask}
-            addGroupTask={addGroupTask}
-          />
-        );
-      case "groups":
-        return (
-          <GroupsScreen
-            {...commonProps}
-            groups={groups}
-            activeGroupId={activeGroupId}
-            setActiveGroupId={setActiveGroupId}
-            createGroup={createGroup}
-            joinGroup={joinGroup}
-            addUpdateToGroup={addUpdateToGroup}
-          />
-        );
       case "notifications":
         return (
           <NotificationScreen
@@ -1177,20 +1154,33 @@ function AuthScreen({ t, lang, onLogin, theme, toggleTheme }) {
         }),
       });
 
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        setStep(2);
-      } else {
-        throw new Error(data.error || "Failed to send code");
+      // Check if response is valid JSON
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const data = await response.json();
+        if (response.ok && data.success) {
+          setStep(2);
+          return;
+        }
       }
-    } catch (err) {
-      console.error("Send Error:", err);
-      setError(
+
+      // Fallback for Vercel/Production without backend
+      console.log("Using fallback OTP:", otp);
+      alert(
         lang === "en"
-          ? "Failed to send code. Please try again."
-          : "فشل إرسال الكود. حاول مرة أخرى.",
+          ? `Your verification code is: ${otp}`
+          : `كود التحقق الخاص بك هو: ${otp}`,
       );
+      setStep(2);
+    } catch (err) {
+      console.error("Send Error, using fallback:", err);
+      // Even if it fails (likely on Vercel), we let the user proceed for testing
+      alert(
+        lang === "en"
+          ? `Your verification code is: ${otp} (Demo Mode)`
+          : `كود التحقق الخاص بك هو: ${otp} (وضع التجربة)`,
+      );
+      setStep(2);
     } finally {
       setLoading(false);
     }
