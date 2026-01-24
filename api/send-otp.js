@@ -1,6 +1,6 @@
-import nodemailer from "nodemailer";
+const nodemailer = require("nodemailer");
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Allow CORS
   res.setHeader("Access-Control-Allow-Credentials", true);
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -72,4 +72,4 @@ export default async function handler(req, res) {
     console.error("❌ Nodemailer Error:", error);
     res.status(500).json({ success: false, error: error.message });
   }
-}
+};
