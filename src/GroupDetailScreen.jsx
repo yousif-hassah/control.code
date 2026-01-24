@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft,
   MessageSquare,
@@ -13,19 +13,24 @@ import {
   Image as ImageIcon,
   Paperclip,
   FileText,
+  User,
+  X,
+  MoreVertical,
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 
 export function GroupDetailScreen({ group, user, lang, onClose }) {
-  const [activeTab, setActiveTab] = useState("tasks"); // 'tasks', 'chat', 'files'
+  const [activeTab, setActiveTab] = useState("tasks");
   const [tasks, setTasks] = useState([]);
   const [messages, setMessages] = useState([]);
   const [files, setFiles] = useState([]);
   const [members, setMembers] = useState([]);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newMessage, setNewMessage] = useState("");
-  const [selectedMember, setSelectedMember] = useState(null);
+  const [selectedMember, setSelectedMember] = useState(""); // ID of assigned user
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     fetchTasks();
@@ -33,7 +38,6 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     fetchFiles();
     fetchMembers();
 
-    // Subscribe to real-time updates
     const tasksSubscription = supabase
       .channel(`group_tasks_${group.id}`)
       .on(
@@ -59,7 +63,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
           filter: `group_id=eq.${group.id}`,
         },
         (payload) => {
-          setMessages((prev) => [...prev, payload.new]);
+          fetchMessages(); // Fetch to get user profiles names
         },
       )
       .subscribe();
@@ -74,9 +78,14 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     try {
       const { data, error } = await supabase
         .from("group_tasks")
-        .select("*")
+        .select(
+          `
+          *,
+          assigned_member:profiles!group_tasks_assigned_to_fkey(name, image_url)
+        `,
+        )
         .eq("group_id", group.id)
-        .order("order_index", { ascending: true });
+        .order("created_at", { ascending: true });
 
       if (error) throw error;
       setTasks(data || []);
@@ -89,7 +98,12 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     try {
       const { data, error } = await supabase
         .from("group_messages")
-        .select("*")
+        .select(
+          `
+          *,
+          profiles(name, image_url)
+        `,
+        )
         .eq("group_id", group.id)
         .order("created_at", { ascending: true });
 
@@ -104,7 +118,12 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     try {
       const { data, error } = await supabase
         .from("group_files")
-        .select("*")
+        .select(
+          `
+          *,
+          profiles(name)
+        `,
+        )
         .eq("group_id", group.id)
         .order("created_at", { ascending: false });
 
@@ -119,7 +138,13 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     try {
       const { data, error } = await supabase
         .from("group_members")
-        .select("user_id, role")
+        .select(
+          `
+          user_id,
+          role,
+          profiles(name, image_url)
+        `,
+        )
         .eq("group_id", group.id);
 
       if (error) throw error;
@@ -138,24 +163,41 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
         {
           group_id: group.id,
           title: newTaskTitle,
-          assigned_to: selectedMember,
+          assigned_to: selectedMember || null,
           created_by: user.uid,
-          order_index: tasks.length,
+          status: "pending",
         },
       ]);
 
       if (error) throw error;
       setNewTaskTitle("");
-      setSelectedMember(null);
+      setSelectedMember("");
       fetchTasks();
     } catch (error) {
       console.error("Error creating task:", error);
+      alert(lang === "ar" ? "فشل إنشاء المهمة" : "Failed to create task");
     } finally {
       setLoading(false);
     }
   };
 
   const toggleTask = async (task) => {
+    // Permission check: Only assigned person, creator, or admin can complete
+    const isAdmin =
+      members.find((m) => m.user_id === user.uid)?.role === "admin";
+    const isAssigned = task.assigned_to === user.uid;
+    const isCreator = task.created_by === user.uid;
+    const isPublic = !task.assigned_to;
+
+    if (!isAdmin && !isAssigned && !isCreator && !isPublic) {
+      alert(
+        lang === "ar"
+          ? "هذه المهمة مخصصة لشخص آخر"
+          : "This task is assigned to someone else",
+      );
+      return;
+    }
+
     try {
       const newStatus = task.status === "completed" ? "pending" : "completed";
       const { error } = await supabase
@@ -175,17 +217,60 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     }
   };
 
-  const deleteTask = async (taskId) => {
-    try {
-      const { error } = await supabase
-        .from("group_tasks")
-        .delete()
-        .eq("id", taskId);
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
 
-      if (error) throw error;
-      fetchTasks();
+    setUploading(true);
+    try {
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `groups/${group.id}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("group-files")
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("group-files").getPublicUrl(filePath);
+
+      const { error: dbError } = await supabase.from("group_files").insert([
+        {
+          group_id: group.id,
+          user_id: user.uid,
+          file_name: file.name,
+          file_url: publicUrl,
+          file_type: file.type.startsWith("image/") ? "image" : "document",
+          file_size: file.size,
+        },
+      ]);
+
+      if (dbError) throw dbError;
+
+      // Also send a message in chat about the file
+      await supabase.from("group_messages").insert([
+        {
+          group_id: group.id,
+          user_id: user.uid,
+          message:
+            lang === "ar"
+              ? `أرسل ملفاً: ${file.name}`
+              : `Sent a file: ${file.name}`,
+          file_url: publicUrl,
+          file_name: file.name,
+        },
+      ]);
+
+      fetchFiles();
+      fetchMessages();
     } catch (error) {
-      console.error("Error deleting task:", error);
+      console.error("Upload error:", error);
+      alert(lang === "ar" ? "فشل رفع الملف" : "Failed to upload file");
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -244,12 +329,13 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
         <div style={{ flex: 1 }}>
           <h2 style={{ margin: 0, fontSize: "18px" }}>{group.name}</h2>
           <p style={{ margin: 0, fontSize: "12px", color: "#666" }}>
-            {members.length} {lang === "en" ? "members" : "أعضاء"}
+            {members.length} {lang === "en" ? "members" : "أعضاء"} •{" "}
+            {group.code}
           </p>
         </div>
       </header>
 
-      {/* Tabs */}
+      {/* Tabs Menu */}
       <div
         style={{
           display: "flex",
@@ -257,308 +343,502 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
           background: "#f9f9f9",
         }}
       >
-        <button
-          onClick={() => setActiveTab("tasks")}
-          style={{
-            flex: 1,
-            padding: "12px",
-            background: activeTab === "tasks" ? "white" : "transparent",
-            border: "none",
-            borderBottom: activeTab === "tasks" ? "2px solid #629FAD" : "none",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-          }}
-        >
-          <ListTodo size={20} />
-          {lang === "en" ? "Tasks" : "المهام"}
-        </button>
-        <button
-          onClick={() => setActiveTab("chat")}
-          style={{
-            flex: 1,
-            padding: "12px",
-            background: activeTab === "chat" ? "white" : "transparent",
-            border: "none",
-            borderBottom: activeTab === "chat" ? "2px solid #629FAD" : "none",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-          }}
-        >
-          <MessageSquare size={20} />
-          {lang === "en" ? "Chat" : "الدردشة"}
-        </button>
-        <button
-          onClick={() => setActiveTab("files")}
-          style={{
-            flex: 1,
-            padding: "12px",
-            background: activeTab === "files" ? "white" : "transparent",
-            border: "none",
-            borderBottom: activeTab === "files" ? "2px solid #629FAD" : "none",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-          }}
-        >
-          <Upload size={20} />
-          {lang === "en" ? "Files" : "الملفات"}
-        </button>
-      </div>
-
-      {/* Content */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
-        {activeTab === "tasks" && (
-          <TasksTab
-            tasks={tasks}
-            members={members}
-            user={user}
-            lang={lang}
-            onToggle={toggleTask}
-            onDelete={deleteTask}
-          />
-        )}
-        {activeTab === "chat" && (
-          <ChatTab messages={messages} user={user} lang={lang} />
-        )}
-        {activeTab === "files" && <FilesTab files={files} lang={lang} />}
-      </div>
-
-      {/* Input Area */}
-      {activeTab === "tasks" && (
-        <div
-          style={{
-            padding: "16px",
-            borderTop: "1px solid #eee",
-            display: "flex",
-            gap: "12px",
-          }}
-        >
-          <input
-            type="text"
-            value={newTaskTitle}
-            onChange={(e) => setNewTaskTitle(e.target.value)}
-            placeholder={lang === "en" ? "New task..." : "مهمة جديدة..."}
+        {["tasks", "chat", "files"].map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
             style={{
               flex: 1,
               padding: "12px",
-              border: "1px solid #ddd",
-              borderRadius: "12px",
-              fontSize: "16px",
-            }}
-          />
-          <button
-            onClick={createTask}
-            disabled={loading || !newTaskTitle.trim()}
-            style={{
-              padding: "12px 20px",
-              background: "#629FAD",
-              color: "white",
+              background: activeTab === tab ? "white" : "transparent",
               border: "none",
-              borderRadius: "12px",
-              cursor: loading ? "not-allowed" : "pointer",
-              opacity: loading || !newTaskTitle.trim() ? 0.5 : 1,
-            }}
-          >
-            <Plus size={20} />
-          </button>
-        </div>
-      )}
-
-      {activeTab === "chat" && (
-        <div
-          style={{
-            padding: "16px",
-            borderTop: "1px solid #eee",
-            display: "flex",
-            gap: "12px",
-          }}
-        >
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-            placeholder={lang === "en" ? "Type a message..." : "اكتب رسالة..."}
-            style={{
-              flex: 1,
-              padding: "12px",
-              border: "1px solid #ddd",
-              borderRadius: "24px",
-              fontSize: "16px",
-            }}
-          />
-          <button
-            onClick={sendMessage}
-            disabled={loading || !newMessage.trim()}
-            style={{
-              padding: "12px 20px",
-              background: "#629FAD",
-              color: "white",
-              border: "none",
-              borderRadius: "24px",
-              cursor: loading ? "not-allowed" : "pointer",
-              opacity: loading || !newMessage.trim() ? 0.5 : 1,
-            }}
-          >
-            <Send size={20} />
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TasksTab({ tasks, user, lang, onToggle, onDelete }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-      {tasks.length === 0 ? (
-        <p style={{ textAlign: "center", color: "#999", padding: "40px 0" }}>
-          {lang === "en" ? "No tasks yet" : "لا توجد مهام بعد"}
-        </p>
-      ) : (
-        tasks.map((task) => (
-          <div
-            key={task.id}
-            style={{
-              padding: "16px",
-              background: "#f9f9f9",
-              borderRadius: "12px",
+              borderBottom: activeTab === tab ? "2px solid #629FAD" : "none",
+              color: activeTab === tab ? "#629FAD" : "#666",
+              fontWeight: activeTab === tab ? "bold" : "normal",
+              cursor: "pointer",
               display: "flex",
               alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              transition: "all 0.2s",
+            }}
+          >
+            {tab === "tasks" && <ListTodo size={20} />}
+            {tab === "chat" && <MessageSquare size={20} />}
+            {tab === "files" && <Upload size={20} />}
+            {lang === "en"
+              ? tab.charAt(0).toUpperCase() + tab.slice(1)
+              : tab === "tasks"
+                ? "المهام"
+                : tab === "chat"
+                  ? "الدردشة"
+                  : "الملفات"}
+          </button>
+        ))}
+      </div>
+
+      {/* Main Content Area */}
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "16px",
+          background: "#fdfdfd",
+        }}
+      >
+        {activeTab === "tasks" && (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+          >
+            {tasks.length === 0 ? (
+              <EmptyState
+                icon={<ListTodo size={48} />}
+                text={lang === "en" ? "No tasks yet" : "لا توجد مهام بعد"}
+              />
+            ) : (
+              tasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  onToggle={() => toggleTask(task)}
+                  lang={lang}
+                  user={user}
+                />
+              ))
+            )}
+          </div>
+        )}
+
+        {activeTab === "chat" && (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+          >
+            {messages.length === 0 ? (
+              <EmptyState
+                icon={<MessageSquare size={48} />}
+                text={lang === "en" ? "Start messaging..." : "ابدأ المراسلة..."}
+              />
+            ) : (
+              messages.map((msg) => (
+                <MessageItem
+                  key={msg.id}
+                  msg={msg}
+                  isOwn={msg.user_id === user.uid}
+                />
+              ))
+            )}
+          </div>
+        )}
+
+        {activeTab === "files" && (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
               gap: "12px",
             }}
           >
-            <button
-              onClick={() => onToggle(task)}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                padding: 0,
-              }}
-            >
-              {task.status === "completed" ? (
-                <CheckCircle2 size={24} color="#4CAF50" />
-              ) : (
-                <Circle size={24} color="#999" />
-              )}
-            </button>
-            <div style={{ flex: 1 }}>
-              <p
+            {files.length === 0 ? (
+              <div style={{ gridColumn: "1/3" }}>
+                <EmptyState
+                  icon={<Upload size={48} />}
+                  text={
+                    lang === "en"
+                      ? "No files shared yet"
+                      : "لم يتم مشاركة ملفات بعد"
+                  }
+                />
+              </div>
+            ) : (
+              files.map((file) => <FileCard key={file.id} file={file} />)
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Conditional Inputs */}
+      <div
+        style={{
+          padding: "16px",
+          borderTop: "1px solid #eee",
+          background: "white",
+        }}
+      >
+        {activeTab === "tasks" && (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+          >
+            <div style={{ display: "flex", gap: "10px" }}>
+              <select
+                value={selectedMember}
+                onChange={(e) => setSelectedMember(e.target.value)}
                 style={{
-                  margin: 0,
-                  textDecoration:
-                    task.status === "completed" ? "line-through" : "none",
-                  color: task.status === "completed" ? "#999" : "#000",
+                  padding: "10px",
+                  borderRadius: "10px",
+                  border: "1px solid #ddd",
+                  background: "#f5f5f5",
+                  fontSize: "13px",
                 }}
               >
-                {task.title}
-              </p>
-              {task.assigned_to && (
-                <p
-                  style={{
-                    margin: "4px 0 0 0",
-                    fontSize: "12px",
-                    color: "#666",
-                  }}
-                >
-                  {lang === "en" ? "Assigned to:" : "مخصص لـ:"}{" "}
-                  {task.assigned_to}
-                </p>
-              )}
+                <option value="">{lang === "ar" ? "للجميع" : "Anyone"}</option>
+                {members.map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.profiles?.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                placeholder={
+                  lang === "en" ? "Add group task..." : "أضف مهمة للمجموعة..."
+                }
+                style={{
+                  flex: 1,
+                  padding: "12px",
+                  border: "1px solid #ddd",
+                  borderRadius: "12px",
+                }}
+                onKeyPress={(e) => e.key === "Enter" && createTask()}
+              />
+              <button
+                onClick={createTask}
+                disabled={loading || !newTaskTitle.trim()}
+                style={{
+                  background: "#629FAD",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "12px",
+                  width: "45px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Plus size={24} />
+              </button>
             </div>
+          </div>
+        )}
+
+        {activeTab === "chat" && (
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             <button
-              onClick={() => onDelete(task.id)}
+              onClick={() => fileInputRef.current.click()}
               style={{
                 background: "none",
                 border: "none",
+                color: "#629FAD",
                 cursor: "pointer",
-                padding: "4px",
               }}
             >
-              <Trash2 size={18} color="#ff4444" />
+              <Paperclip size={22} />
+            </button>
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder={
+                lang === "en" ? "Type something..." : "اكتب شيئاً..."
+              }
+              style={{
+                flex: 1,
+                padding: "12px",
+                border: "1px solid #ddd",
+                borderRadius: "24px",
+                background: "#f9f9f9",
+              }}
+              onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+            />
+            <button
+              onClick={sendMessage}
+              disabled={loading || !newMessage.trim()}
+              style={{
+                background: "#629FAD",
+                color: "white",
+                border: "none",
+                borderRadius: "50%",
+                width: "40px",
+                height: "40px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Send size={20} />
             </button>
           </div>
-        ))
-      )}
-    </div>
-  );
-}
+        )}
 
-function ChatTab({ messages, user, lang }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-      {messages.length === 0 ? (
-        <p style={{ textAlign: "center", color: "#999", padding: "40px 0" }}>
-          {lang === "en" ? "No messages yet" : "لا توجد رسائل بعد"}
-        </p>
-      ) : (
-        messages.map((msg) => (
-          <div
-            key={msg.id}
+        {activeTab === "files" && (
+          <button
+            onClick={() => fileInputRef.current.click()}
+            disabled={uploading}
             style={{
-              alignSelf: msg.user_id === user.uid ? "flex-end" : "flex-start",
-              maxWidth: "70%",
-            }}
-          >
-            <div
-              style={{
-                padding: "12px",
-                background: msg.user_id === user.uid ? "#629FAD" : "#f5f5f5",
-                color: msg.user_id === user.uid ? "white" : "black",
-                borderRadius: "16px",
-                wordBreak: "break-word",
-              }}
-            >
-              {msg.message}
-            </div>
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
-
-function FilesTab({ files, lang }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-      {files.length === 0 ? (
-        <p style={{ textAlign: "center", color: "#999", padding: "40px 0" }}>
-          {lang === "en" ? "No files yet" : "لا توجد ملفات بعد"}
-        </p>
-      ) : (
-        files.map((file) => (
-          <div
-            key={file.id}
-            style={{
-              padding: "16px",
-              background: "#f9f9f9",
-              borderRadius: "12px",
+              width: "100%",
+              padding: "14px",
+              background: "#629FAD",
+              color: "white",
+              border: "none",
+              borderRadius: "15px",
               display: "flex",
               alignItems: "center",
-              gap: "12px",
+              justifyContent: "center",
+              gap: "10px",
+              cursor: "pointer",
             }}
           >
-            <FileText size={24} color="#629FAD" />
-            <div style={{ flex: 1 }}>
-              <p style={{ margin: 0 }}>{file.file_name}</p>
-              <p
-                style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#666" }}
-              >
-                {new Date(file.created_at).toLocaleDateString()}
-              </p>
-            </div>
-          </div>
-        ))
+            {uploading ? (
+              "..."
+            ) : (
+              <>
+                <Upload size={20} />{" "}
+                {lang === "ar" ? "رفع ملف أو صورة" : "Upload File/Image"}
+              </>
+            )}
+          </button>
+        )}
+      </div>
+
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        style={{ display: "none" }}
+      />
+    </div>
+  );
+}
+
+// Sub-components
+function EmptyState({ icon, text }) {
+  return (
+    <div style={{ textAlign: "center", padding: "60px 20px", color: "#bbb" }}>
+      <div style={{ marginBottom: "15px", opacity: 0.3 }}>{icon}</div>
+      <p style={{ margin: 0, fontSize: "16px" }}>{text}</p>
+    </div>
+  );
+}
+
+function TaskCard({ task, onToggle, lang, user }) {
+  const isCompleted = task.status === "completed";
+  return (
+    <div
+      style={{
+        padding: "15px",
+        background: "white",
+        borderRadius: "15px",
+        border: "1px solid #f0f0f0",
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        boxShadow: "0 2px 5px rgba(0,0,0,0.02)",
+      }}
+    >
+      <button
+        onClick={onToggle}
+        style={{
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          transition: "transform 0.1s",
+        }}
+      >
+        {isCompleted ? (
+          <CheckCircle2 size={24} color="#4CAF50" />
+        ) : (
+          <Circle size={24} color="#ddd" />
+        )}
+      </button>
+      <div style={{ flex: 1 }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: "15px",
+            textDecoration: isCompleted ? "line-through" : "none",
+            color: isCompleted ? "#aaa" : "#333",
+          }}
+        >
+          {task.title}
+        </p>
+        <div style={{ display: "flex", gap: "10px", marginTop: "5px" }}>
+          <span
+            style={{
+              fontSize: "11px",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              color: "#888",
+              background: "#f5f5f5",
+              padding: "2px 8px",
+              borderRadius: "10px",
+            }}
+          >
+            <User size={10} />
+            {task.assigned_member?.name ||
+              (lang === "ar" ? "للجميع" : "Anyone")}
+          </span>
+          {isCompleted && task.completed_at && (
+            <span style={{ fontSize: "10px", color: "#4CAF50" }}>
+              ✓{" "}
+              {new Date(task.completed_at).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessageItem({ msg, isOwn }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignSelf: isOwn ? "flex-end" : "flex-start",
+        maxWidth: "80%",
+      }}
+    >
+      {!isOwn && (
+        <span
+          style={{
+            fontSize: "11px",
+            color: "#888",
+            marginBottom: "4px",
+            marginLeft: "12px",
+          }}
+        >
+          {msg.profiles?.name}
+        </span>
       )}
+      <div
+        style={{
+          padding: "12px 16px",
+          borderRadius: isOwn ? "20px 20px 2px 20px" : "20px 20px 20px 2px",
+          background: isOwn ? "#629FAD" : "#f1f1f1",
+          color: isOwn ? "white" : "#333",
+          boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+          position: "relative",
+        }}
+      >
+        {msg.file_url ? (
+          <div
+            onClick={() => window.open(msg.file_url, "_blank")}
+            style={{ cursor: "pointer" }}
+          >
+            {msg.file_url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+              <img
+                src={msg.file_url}
+                alt="Shared"
+                style={{
+                  maxWidth: "100%",
+                  borderRadius: "10px",
+                  marginBottom: "8px",
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  background: "rgba(0,0,0,0.05)",
+                  padding: "10px",
+                  borderRadius: "10px",
+                }}
+              >
+                <FileText size={20} />
+                <span
+                  style={{
+                    fontSize: "13px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {msg.file_name}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p style={{ margin: 0, fontSize: "14px", lineHeight: "1.5" }}>
+            {msg.message}
+          </p>
+        )}
+        <span
+          style={{
+            fontSize: "9px",
+            opacity: 0.6,
+            marginTop: "6px",
+            display: "block",
+            textAlign: isOwn ? "right" : "left",
+          }}
+        >
+          {new Date(msg.created_at).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function FileCard({ file }) {
+  const isImage = file.file_type === "image";
+  return (
+    <div
+      onClick={() => window.open(file.file_url, "_blank")}
+      style={{
+        background: "white",
+        borderRadius: "12px",
+        border: "1px solid #f0f0f0",
+        overflow: "hidden",
+        cursor: "pointer",
+        transition: "transform 0.2s",
+      }}
+    >
+      {isImage ? (
+        <img
+          src={file.file_url}
+          style={{ width: "100%", height: "100px", objectFit: "cover" }}
+          alt="Thumbnail"
+        />
+      ) : (
+        <div
+          style={{
+            height: "100px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "#f9f9f9",
+          }}
+        >
+          <FileText size={32} color="#629FAD" />
+        </div>
+      )}
+      <div style={{ padding: "8px" }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: "12px",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            fontWeight: "bold",
+          }}
+        >
+          {file.file_name}
+        </p>
+        <p style={{ margin: "2px 0 0 0", fontSize: "10px", color: "#999" }}>
+          {file.profiles?.name}
+        </p>
+      </div>
     </div>
   );
 }
