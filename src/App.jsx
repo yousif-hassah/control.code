@@ -1154,33 +1154,20 @@ function AuthScreen({ t, lang, onLogin, theme, toggleTheme }) {
         }),
       });
 
-      // Check if response is valid JSON
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.indexOf("application/json") !== -1) {
-        const data = await response.json();
-        if (response.ok && data.success) {
-          setStep(2);
-          return;
-        }
-      }
+      const data = await response.json();
 
-      // Fallback for Vercel/Production without backend
-      console.log("Using fallback OTP:", otp);
-      alert(
-        lang === "en"
-          ? `Your verification code is: ${otp}`
-          : `كود التحقق الخاص بك هو: ${otp}`,
-      );
-      setStep(2);
+      if (response.ok && data.success) {
+        setStep(2);
+      } else {
+        throw new Error(data.error || "Failed to send code");
+      }
     } catch (err) {
-      console.error("Send Error, using fallback:", err);
-      // Even if it fails (likely on Vercel), we let the user proceed for testing
-      alert(
+      console.error("Send Error:", err);
+      setError(
         lang === "en"
-          ? `Your verification code is: ${otp} (Demo Mode)`
-          : `كود التحقق الخاص بك هو: ${otp} (وضع التجربة)`,
+          ? "Server Error: Make sure Email settings are configured in Vercel."
+          : "خطأ في السيرفر: تأكد من إعدادات الإيميل في Vercel.",
       );
-      setStep(2);
     } finally {
       setLoading(false);
     }
