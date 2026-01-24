@@ -7,8 +7,20 @@ import {
   ChevronLeft,
   Copy,
   Check,
+  CheckCircle2,
+  Circle,
+  Paperclip,
+  Image as ImageIcon,
+  FileText,
+  Trash2,
+  UserPlus,
+  MessageSquare,
+  ListTodo,
+  Bell,
+  Upload,
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
+import { GroupDetailScreen } from "./GroupDetailScreen";
 
 export function GroupsScreen({ t, lang, setScreen, user }) {
   const [groups, setGroups] = useState([]);
@@ -63,7 +75,6 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
     try {
       const groupCode = generateGroupCode();
 
-      // Create group
       const { data: newGroup, error: groupError } = await supabase
         .from("groups")
         .insert([
@@ -78,7 +89,6 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
 
       if (groupError) throw groupError;
 
-      // Add creator as admin
       const { error: memberError } = await supabase
         .from("group_members")
         .insert([
@@ -107,7 +117,6 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
 
     setLoading(true);
     try {
-      // Find group by code
       const { data: group, error: groupError } = await supabase
         .from("groups")
         .select("*")
@@ -119,7 +128,6 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
         return;
       }
 
-      // Check if already a member
       const { data: existing } = await supabase
         .from("group_members")
         .select("*")
@@ -132,7 +140,6 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
         return;
       }
 
-      // Join group
       const { error: joinError } = await supabase.from("group_members").insert([
         {
           group_id: group.id,
@@ -295,7 +302,7 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
         </div>
       )}
 
-      {/* Create Group Modal */}
+      {/* Modals */}
       {showCreateModal && (
         <div
           style={{
@@ -372,7 +379,6 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
         </div>
       )}
 
-      {/* Join Group Modal */}
       {showJoinModal && (
         <div
           style={{
@@ -453,9 +459,8 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
         </div>
       )}
 
-      {/* Group Chat Screen */}
       {selectedGroup && (
-        <GroupChatScreen
+        <GroupDetailScreen
           group={selectedGroup}
           user={user}
           lang={lang}
@@ -466,193 +471,4 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
   );
 }
 
-function GroupChatScreen({ group, user, lang, onClose }) {
-  const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    fetchMessages();
-
-    // Subscribe to new messages
-    const subscription = supabase
-      .channel(`group_${group.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "group_messages",
-          filter: `group_id=eq.${group.id}`,
-        },
-        (payload) => {
-          setMessages((prev) => [...prev, payload.new]);
-        },
-      )
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [group.id]);
-
-  const fetchMessages = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("group_messages")
-        .select(
-          `
-          *,
-          profiles (name, image_url)
-        `,
-        )
-        .eq("group_id", group.id)
-        .order("created_at", { ascending: true });
-
-      if (error) throw error;
-      setMessages(data || []);
-    } catch (error) {
-      console.error("Error fetching messages:", error);
-    }
-  };
-
-  const sendMessage = async () => {
-    if (!newMessage.trim()) return;
-
-    setLoading(true);
-    try {
-      const { error } = await supabase.from("group_messages").insert([
-        {
-          group_id: group.id,
-          user_id: user.uid,
-          message: newMessage.trim(),
-        },
-      ]);
-
-      if (error) throw error;
-      setNewMessage("");
-    } catch (error) {
-      console.error("Error sending message:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: "white",
-        zIndex: 2000,
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <header
-        style={{
-          padding: "16px",
-          borderBottom: "1px solid #eee",
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-        }}
-      >
-        <button
-          onClick={onClose}
-          style={{ background: "none", border: "none", cursor: "pointer" }}
-        >
-          <ChevronLeft size={24} />
-        </button>
-        <div>
-          <h2 style={{ margin: 0, fontSize: "18px" }}>{group.name}</h2>
-          <p style={{ margin: 0, fontSize: "12px", color: "#666" }}>
-            {lang === "en" ? "Code:" : "الكود:"} {group.code}
-          </p>
-        </div>
-      </header>
-
-      <div
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "16px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "12px",
-        }}
-      >
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            style={{
-              alignSelf: msg.user_id === user.uid ? "flex-end" : "flex-start",
-              maxWidth: "70%",
-            }}
-          >
-            {msg.user_id !== user.uid && (
-              <p
-                style={{ margin: "0 0 4px 0", fontSize: "12px", color: "#666" }}
-              >
-                {msg.profiles?.name || "User"}
-              </p>
-            )}
-            <div
-              style={{
-                padding: "12px",
-                background: msg.user_id === user.uid ? "#629FAD" : "#f5f5f5",
-                color: msg.user_id === user.uid ? "white" : "black",
-                borderRadius: "16px",
-                wordBreak: "break-word",
-              }}
-            >
-              {msg.message}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div
-        style={{
-          padding: "16px",
-          borderTop: "1px solid #eee",
-          display: "flex",
-          gap: "12px",
-        }}
-      >
-        <input
-          type="text"
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-          placeholder={lang === "en" ? "Type a message..." : "اكتب رسالة..."}
-          style={{
-            flex: 1,
-            padding: "12px",
-            border: "1px solid #ddd",
-            borderRadius: "24px",
-            fontSize: "16px",
-          }}
-        />
-        <button
-          onClick={sendMessage}
-          disabled={loading || !newMessage.trim()}
-          style={{
-            padding: "12px 20px",
-            background: "#629FAD",
-            color: "white",
-            border: "none",
-            borderRadius: "24px",
-            cursor: loading ? "not-allowed" : "pointer",
-            opacity: loading || !newMessage.trim() ? 0.5 : 1,
-          }}
-        >
-          <Send size={20} />
-        </button>
-      </div>
-    </div>
-  );
-}
+// Component continues in next file due to size...
