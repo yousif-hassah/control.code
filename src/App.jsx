@@ -1144,7 +1144,12 @@ function AuthScreen({ t, lang, onLogin, theme, toggleTheme }) {
     setGeneratedOtp(otp);
 
     try {
-      const response = await fetch("/api/send-otp", {
+      // Use localhost:3001 for development, /api/send-otp for production
+      const apiUrl = import.meta.env.DEV
+        ? "http://localhost:3001/api/send-otp"
+        : "/api/send-otp";
+
+      const response = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
