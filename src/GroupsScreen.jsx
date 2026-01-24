@@ -53,8 +53,7 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
       setShowCreateModal(false);
       fetchUserGroups();
     } catch (error) {
-      console.error("Error creating group:", error);
-      alert(`Failed to create group: ${error.message || "Unknown error"}`);
+      alert("Failed to create group");
     } finally {
       setLoading(false);
     }

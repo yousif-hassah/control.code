@@ -12,10 +12,6 @@ import {
   FileText,
   Activity,
   User,
-  Bell,
-  Mic,
-  Square,
-  Play,
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 
@@ -32,19 +28,8 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Notifications
-  const [notifications, setNotifications] = useState([]);
-  const [showNotifications, setShowNotifications] = useState(false);
-
-  // Voice Messages
-  const [isRecording, setIsRecording] = useState(false);
-  const [audioBlob, setAudioBlob] = useState(null);
-  const [recordingTime, setRecordingTime] = useState(0);
-
   const fileInputRef = useRef(null);
   const chatEndRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const recordingIntervalRef = useRef(null);
 
   useEffect(() => {
     fetchInitialData();
@@ -80,7 +65,6 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     fetchFiles();
     fetchMembers();
     fetchActivities();
-    fetchNotifications();
   };
 
   const fetchTasks = async () => {
@@ -129,152 +113,6 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     setActivities(data || []);
   };
 
-  const fetchNotifications = async () => {
-    const { data } = await supabase
-      .from("group_notifications")
-      .select("*")
-      .eq("user_id", user.uid)
-      .eq("group_id", group.id)
-      .eq("is_read", false)
-      .order("created_at", { ascending: false });
-    setNotifications(data || []);
-  };
-
-  const createNotification = async (type, title, message, relatedId = null) => {
-    try {
-      // جلب جميع أعضاء المجموعة
-      const { data: groupMembers } = await supabase
-        .from("group_members")
-        .select("user_id")
-        .eq("group_id", group.id);
-
-      // إنشاء إشعار لكل عضو (ماعدا الشخص الذي قام بالإجراء)
-      const notifications = groupMembers
-        .filter((m) => m.user_id !== user.uid)
-        .map((m) => ({
-          group_id: group.id,
-          user_id: m.user_id,
-          type: type,
-          title: title,
-          message: message,
-          related_id: relatedId,
-          created_by: user.uid,
-        }));
-
-      if (notifications.length > 0) {
-        await supabase.from("group_notifications").insert(notifications);
-      }
-    } catch (error) {
-      console.error("Error creating notification:", error);
-    }
-  };
-
-  const markNotificationAsRead = async (notifId) => {
-    await supabase
-      .from("group_notifications")
-      .update({ is_read: true })
-      .eq("id", notifId);
-    fetchNotifications();
-  };
-
-  // Voice Recording Functions
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-
-      const chunks = [];
-      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: "audio/webm" });
-        setAudioBlob(blob);
-        stream.getTracks().forEach((track) => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-      setRecordingTime(0);
-
-      // Start timer
-      recordingIntervalRef.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
-      }, 1000);
-    } catch (error) {
-      console.error("Error starting recording:", error);
-      alert(
-        lang === "en" ? "Microphone access denied" : "تم رفض الوصول للميكروفون",
-      );
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      if (recordingIntervalRef.current) {
-        clearInterval(recordingIntervalRef.current);
-      }
-    }
-  };
-
-  const cancelRecording = () => {
-    stopRecording();
-    setAudioBlob(null);
-    setRecordingTime(0);
-  };
-
-  const sendVoiceMessage = async () => {
-    if (!audioBlob) return;
-
-    setUploading(true);
-    try {
-      // رفع الملف الصوتي إلى Supabase Storage
-      const fileName = `voice_${Date.now()}.webm`;
-      const { data, error } = await supabase.storage
-        .from("group-files")
-        .upload(`${group.id}/voice/${fileName}`, audioBlob);
-
-      if (error) throw error;
-
-      // الحصول على الرابط العام
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("group-files").getPublicUrl(data.path);
-
-      // إرسال الرسالة
-      await supabase.from("group_messages").insert({
-        group_id: group.id,
-        user_id: user.uid,
-        content: "[Voice Message]",
-        file_url: publicUrl,
-        file_type: "audio",
-        sender_name: user.name,
-        sender_image: user.image,
-      });
-
-      // إضافة نشاط
-      await supabase.from("group_activities").insert({
-        group_id: group.id,
-        user_id: user.uid,
-        action: "sent a voice message",
-        user_name: user.name,
-      });
-
-      setAudioBlob(null);
-      setRecordingTime(0);
-    } catch (error) {
-      console.error("Error sending voice message:", error);
-      alert(
-        lang === "en"
-          ? "Failed to send voice message"
-          : "فشل إرسال الرسالة الصوتية",
-      );
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const scrollToBottom = () => {
     setTimeout(
       () => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }),
@@ -297,39 +135,16 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     if (!newTaskTitle.trim()) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("group_tasks")
-        .insert([
-          {
-            group_id: group.id,
-            title: newTaskTitle.trim(),
-            assigned_to: selectedMember || null,
-            created_by: user.uid,
-          },
-        ])
-        .select();
-
+      const { error } = await supabase.from("group_tasks").insert([
+        {
+          group_id: group.id,
+          title: newTaskTitle.trim(),
+          assigned_to: selectedMember || null,
+          created_by: user.uid,
+        },
+      ]);
       if (error) throw error;
-
       await logActivity("task_created", newTaskTitle);
-
-      // إرسال إشعار إذا تم تعيين المهمة لشخص محدد
-      if (selectedMember && data && data[0]) {
-        const assignedMemberData = members.find(
-          (m) => m.user_id === selectedMember,
-        );
-        const memberName = assignedMemberData?.profiles?.name || "Member";
-
-        await createNotification(
-          "task_assigned",
-          lang === "en" ? "New Task Assigned" : "مهمة جديدة",
-          lang === "en"
-            ? `${user.name} assigned you a task: ${newTaskTitle}`
-            : `${user.name} عيّن لك مهمة: ${newTaskTitle}`,
-          data[0].id,
-        );
-      }
-
       setNewTaskTitle("");
       setSelectedMember("");
       fetchTasks();
@@ -337,51 +152,6 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
       alert("Error saving task");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const toggleTask = async (task) => {
-    // التحقق من الصلاحيات: فقط الشخص المعين، أو منشئ المهمة، أو المشرف
-    const currentMember = members.find((m) => m.user_id === user.uid);
-    const isAdmin = currentMember?.role === "admin";
-    const isAssigned = task.assigned_to === user.uid;
-    const isCreator = task.created_by === user.uid;
-
-    if (!isAdmin && !isAssigned && !isCreator) {
-      alert(
-        lang === "en"
-          ? "Only the assigned member, task creator, or admin can complete this task"
-          : "فقط العضو المعين، أو منشئ المهمة، أو المشرف يمكنه إكمال هذه المهمة",
-      );
-      return;
-    }
-
-    try {
-      const newStatus = !task.is_completed;
-
-      await supabase
-        .from("group_tasks")
-        .update({ is_completed: newStatus })
-        .eq("id", task.id);
-
-      if (newStatus) {
-        // إرسال إشعار لجميع الأعضاء عند إكمال المهمة
-        await createNotification(
-          "task_completed",
-          lang === "en" ? "Task Completed" : "تم إكمال مهمة",
-          lang === "en"
-            ? `${user.name} completed: ${task.title}`
-            : `${user.name} أكمل: ${task.title}`,
-          task.id,
-        );
-
-        await logActivity("task_completed", task.title);
-      }
-
-      fetchTasks();
-    } catch (error) {
-      console.error("Error toggling task:", error);
-      alert("Error updating task");
     }
   };
 
