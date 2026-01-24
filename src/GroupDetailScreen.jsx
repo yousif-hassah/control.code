@@ -15,7 +15,8 @@ import {
   FileText,
   User,
   X,
-  MoreVertical,
+  History,
+  Activity,
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 
@@ -25,21 +26,31 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   const [messages, setMessages] = useState([]);
   const [files, setFiles] = useState([]);
   const [members, setMembers] = useState([]);
+  const [activities, setActivities] = useState([]);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newMessage, setNewMessage] = useState("");
-  const [selectedMember, setSelectedMember] = useState(""); // ID of assigned user
+  const [selectedMember, setSelectedMember] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const chatEndRef = useRef(null);
 
   useEffect(() => {
+    fetchAllData();
+    setupSubscriptions();
+  }, [group.id]);
+
+  const fetchAllData = () => {
     fetchTasks();
     fetchMessages();
     fetchFiles();
     fetchMembers();
+    fetchActivities();
+  };
 
-    const tasksSubscription = supabase
-      .channel(`group_tasks_${group.id}`)
+  const setupSubscriptions = () => {
+    const channel = supabase
+      .channel(`group_realtime_${group.id}`)
       .on(
         "postgres_changes",
         {
@@ -50,10 +61,6 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
         },
         () => fetchTasks(),
       )
-      .subscribe();
-
-    const messagesSubscription = supabase
-      .channel(`group_messages_${group.id}`)
       .on(
         "postgres_changes",
         {
@@ -62,101 +69,95 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
           table: "group_messages",
           filter: `group_id=eq.${group.id}`,
         },
-        (payload) => {
-          fetchMessages(); // Fetch to get user profiles names
+        () => fetchMessages(),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "group_activities",
+          filter: `group_id=eq.${group.id}`,
         },
+        () => fetchActivities(),
       )
       .subscribe();
 
-    return () => {
-      tasksSubscription.unsubscribe();
-      messagesSubscription.unsubscribe();
-    };
-  }, [group.id]);
+    return () => supabase.removeChannel(channel);
+  };
+
+  const logActivity = async (type, content) => {
+    try {
+      await supabase.from("group_activities").insert([
+        {
+          group_id: group.id,
+          user_id: user.uid,
+          action_type: type,
+          content: content,
+        },
+      ]);
+    } catch (e) {
+      console.error("Activity Log Error:", e);
+    }
+  };
 
   const fetchTasks = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("group_tasks")
-        .select(
-          `
-          *,
-          assigned_member:profiles!group_tasks_assigned_to_fkey(name, image_url)
-        `,
-        )
-        .eq("group_id", group.id)
-        .order("created_at", { ascending: true });
-
-      if (error) throw error;
-      setTasks(data || []);
-    } catch (error) {
-      console.error("Error fetching tasks:", error);
-    }
+    const { data } = await supabase
+      .from("group_tasks")
+      .select(
+        `*, assigned_member:profiles!group_tasks_assigned_to_fkey(name, image_url)`,
+      )
+      .eq("group_id", group.id)
+      .order("created_at", { ascending: true });
+    setTasks(data || []);
   };
 
   const fetchMessages = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("group_messages")
-        .select(
-          `
-          *,
-          profiles(name, image_url)
-        `,
-        )
-        .eq("group_id", group.id)
-        .order("created_at", { ascending: true });
-
-      if (error) throw error;
-      setMessages(data || []);
-    } catch (error) {
-      console.error("Error fetching messages:", error);
-    }
+    const { data } = await supabase
+      .from("group_messages")
+      .select(`*, profiles(name, image_url)`)
+      .eq("group_id", group.id)
+      .order("created_at", { ascending: true });
+    setMessages(data || []);
+    scrollToBottom();
   };
 
   const fetchFiles = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("group_files")
-        .select(
-          `
-          *,
-          profiles(name)
-        `,
-        )
-        .eq("group_id", group.id)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setFiles(data || []);
-    } catch (error) {
-      console.error("Error fetching files:", error);
-    }
+    const { data } = await supabase
+      .from("group_files")
+      .select(`*, profiles(name)`)
+      .eq("group_id", group.id)
+      .order("created_at", { ascending: false });
+    setFiles(data || []);
   };
 
   const fetchMembers = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("group_members")
-        .select(
-          `
-          user_id,
-          role,
-          profiles(name, image_url)
-        `,
-        )
-        .eq("group_id", group.id);
+    const { data } = await supabase
+      .from("group_members")
+      .select(`user_id, role, profiles(name, image_url)`)
+      .eq("group_id", group.id);
+    setMembers(data || []);
+  };
 
-      if (error) throw error;
-      setMembers(data || []);
-    } catch (error) {
-      console.error("Error fetching members:", error);
-    }
+  const fetchActivities = async () => {
+    const { data } = await supabase
+      .from("group_activities")
+      .select(`*, profiles(name, image_url)`)
+      .eq("group_id", group.id)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setActivities(data || []);
+  };
+
+  const scrollToBottom = () => {
+    setTimeout(
+      () => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }),
+      100,
+    );
   };
 
   const createTask = async () => {
     if (!newTaskTitle.trim()) return;
-
     setLoading(true);
     try {
       const { error } = await supabase.from("group_tasks").insert([
@@ -165,110 +166,89 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
           title: newTaskTitle,
           assigned_to: selectedMember || null,
           created_by: user.uid,
-          status: "pending",
         },
       ]);
-
       if (error) throw error;
+      await logActivity("task_created", newTaskTitle);
       setNewTaskTitle("");
       setSelectedMember("");
       fetchTasks();
-    } catch (error) {
-      console.error("Error creating task:", error);
-      alert(lang === "ar" ? "فشل إنشاء المهمة" : "Failed to create task");
+    } catch (e) {
+      alert("Error saving task");
     } finally {
       setLoading(false);
     }
   };
 
   const toggleTask = async (task) => {
-    // Permission check: Only assigned person, creator, or admin can complete
     const isAdmin =
       members.find((m) => m.user_id === user.uid)?.role === "admin";
     const isAssigned = task.assigned_to === user.uid;
-    const isCreator = task.created_by === user.uid;
-    const isPublic = !task.assigned_to;
-
-    if (!isAdmin && !isAssigned && !isCreator && !isPublic) {
+    if (!isAdmin && !isAssigned && task.assigned_to) {
       alert(
         lang === "ar"
           ? "هذه المهمة مخصصة لشخص آخر"
-          : "This task is assigned to someone else",
+          : "Assigned to someone else",
       );
       return;
     }
-
-    try {
-      const newStatus = task.status === "completed" ? "pending" : "completed";
-      const { error } = await supabase
-        .from("group_tasks")
-        .update({
-          status: newStatus,
-          completed_at:
-            newStatus === "completed" ? new Date().toISOString() : null,
-          completed_by: newStatus === "completed" ? user.uid : null,
-        })
-        .eq("id", task.id);
-
-      if (error) throw error;
-      fetchTasks();
-    } catch (error) {
-      console.error("Error toggling task:", error);
-    }
+    const newStatus = task.status === "completed" ? "pending" : "completed";
+    await supabase
+      .from("group_tasks")
+      .update({
+        status: newStatus,
+        completed_at:
+          newStatus === "completed" ? new Date().toISOString() : null,
+        completed_by: newStatus === "completed" ? user.uid : null,
+      })
+      .eq("id", task.id);
+    await logActivity(
+      newStatus === "completed" ? "task_completed" : "task_reopened",
+      task.title,
+    );
+    fetchTasks();
   };
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-
     setUploading(true);
     try {
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${Math.random()}.${fileExt}`;
+      const fileName = `${Math.random()}.${file.name.split(".").pop()}`;
       const filePath = `groups/${group.id}/${fileName}`;
-
       const { error: uploadError } = await supabase.storage
         .from("group-files")
         .upload(filePath, file);
-
       if (uploadError) throw uploadError;
-
       const {
         data: { publicUrl },
       } = supabase.storage.from("group-files").getPublicUrl(filePath);
-
-      const { error: dbError } = await supabase.from("group_files").insert([
-        {
-          group_id: group.id,
-          user_id: user.uid,
-          file_name: file.name,
-          file_url: publicUrl,
-          file_type: file.type.startsWith("image/") ? "image" : "document",
-          file_size: file.size,
-        },
-      ]);
-
-      if (dbError) throw dbError;
-
-      // Also send a message in chat about the file
-      await supabase.from("group_messages").insert([
-        {
-          group_id: group.id,
-          user_id: user.uid,
-          message:
-            lang === "ar"
-              ? `أرسل ملفاً: ${file.name}`
-              : `Sent a file: ${file.name}`,
-          file_url: publicUrl,
-          file_name: file.name,
-        },
-      ]);
-
-      fetchFiles();
-      fetchMessages();
-    } catch (error) {
-      console.error("Upload error:", error);
-      alert(lang === "ar" ? "فشل رفع الملف" : "Failed to upload file");
+      await supabase
+        .from("group_files")
+        .insert([
+          {
+            group_id: group.id,
+            user_id: user.uid,
+            file_name: file.name,
+            file_url: publicUrl,
+            file_type: file.type.startsWith("image/") ? "image" : "document",
+          },
+        ]);
+      await logActivity("file_uploaded", file.name);
+      await supabase
+        .from("group_messages")
+        .insert([
+          {
+            group_id: group.id,
+            user_id: user.uid,
+            message: `أرسل ملفاً: ${file.name}`,
+            file_url: publicUrl,
+            file_name: file.name,
+          },
+        ]);
+      fetchAllData();
+    } catch (e) {
+      alert("Upload failed");
     } finally {
       setUploading(false);
     }
@@ -276,23 +256,14 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
 
   const sendMessage = async () => {
     if (!newMessage.trim()) return;
-
-    setLoading(true);
-    try {
-      const { error } = await supabase.from("group_messages").insert([
-        {
-          group_id: group.id,
-          user_id: user.uid,
-          message: newMessage.trim(),
-        },
+    const { error } = await supabase
+      .from("group_messages")
+      .insert([
+        { group_id: group.id, user_id: user.uid, message: newMessage.trim() },
       ]);
-
-      if (error) throw error;
+    if (!error) {
       setNewMessage("");
-    } catch (error) {
-      console.error("Error sending message:", error);
-    } finally {
-      setLoading(false);
+      fetchMessages();
     }
   };
 
@@ -310,7 +281,6 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
         flexDirection: "column",
       }}
     >
-      {/* Header */}
       <header
         style={{
           padding: "16px",
@@ -322,238 +292,184 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
       >
         <button
           onClick={onClose}
-          style={{ background: "none", border: "none", cursor: "pointer" }}
+          style={{ background: "none", border: "none" }}
         >
           <ChevronLeft size={24} />
         </button>
         <div style={{ flex: 1 }}>
-          <h2 style={{ margin: 0, fontSize: "18px" }}>{group.name}</h2>
-          <p style={{ margin: 0, fontSize: "12px", color: "#666" }}>
+          <h2 style={{ margin: 0, fontSize: "17px" }}>{group.name}</h2>
+          <p style={{ margin: 0, fontSize: "11px", color: "#888" }}>
             {members.length} {lang === "en" ? "members" : "أعضاء"} •{" "}
             {group.code}
           </p>
         </div>
       </header>
 
-      {/* Tabs Menu */}
       <div
         style={{
           display: "flex",
           borderBottom: "1px solid #eee",
           background: "#f9f9f9",
+          overflowX: "auto",
         }}
       >
-        {["tasks", "chat", "files"].map((tab) => (
+        {["tasks", "chat", "files", "activity"].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             style={{
               flex: 1,
-              padding: "12px",
+              padding: "12px 5px",
               background: activeTab === tab ? "white" : "transparent",
               border: "none",
               borderBottom: activeTab === tab ? "2px solid #629FAD" : "none",
               color: activeTab === tab ? "#629FAD" : "#666",
-              fontWeight: activeTab === tab ? "bold" : "normal",
+              fontSize: "13px",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              gap: "8px",
-              transition: "all 0.2s",
+              gap: "5px",
             }}
           >
-            {tab === "tasks" && <ListTodo size={20} />}
-            {tab === "chat" && <MessageSquare size={20} />}
-            {tab === "files" && <Upload size={20} />}
+            {tab === "tasks" && <ListTodo size={16} />}
+            {tab === "chat" && <MessageSquare size={16} />}
+            {tab === "files" && <Upload size={16} />}
+            {tab === "activity" && <Activity size={16} />}
             {lang === "en"
               ? tab.charAt(0).toUpperCase() + tab.slice(1)
               : tab === "tasks"
                 ? "المهام"
                 : tab === "chat"
                   ? "الدردشة"
-                  : "الملفات"}
+                  : tab === "files"
+                    ? "الملفات"
+                    : "النشاط"}
           </button>
         ))}
       </div>
 
-      {/* Main Content Area */}
       <div
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "16px",
-          background: "#fdfdfd",
+          padding: "15px",
+          background: "#fcfcfc",
         }}
       >
-        {activeTab === "tasks" && (
-          <div
-            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
-          >
-            {tasks.length === 0 ? (
-              <EmptyState
-                icon={<ListTodo size={48} />}
-                text={lang === "en" ? "No tasks yet" : "لا توجد مهام بعد"}
-              />
-            ) : (
-              tasks.map((task) => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  onToggle={() => toggleTask(task)}
-                  lang={lang}
-                  user={user}
-                />
-              ))
-            )}
-          </div>
-        )}
-
+        {activeTab === "tasks" &&
+          tasks.map((t) => (
+            <TaskCard
+              key={t.id}
+              task={t}
+              onToggle={() => toggleTask(t)}
+              lang={lang}
+            />
+          ))}
         {activeTab === "chat" && (
-          <div
-            style={{ display: "flex", flexDirection: "column", gap: "16px" }}
-          >
-            {messages.length === 0 ? (
-              <EmptyState
-                icon={<MessageSquare size={48} />}
-                text={lang === "en" ? "Start messaging..." : "ابدأ المراسلة..."}
-              />
-            ) : (
-              messages.map((msg) => (
-                <MessageItem
-                  key={msg.id}
-                  msg={msg}
-                  isOwn={msg.user_id === user.uid}
-                />
-              ))
-            )}
-          </div>
+          <>
+            {messages.map((m) => (
+              <MessageItem key={m.id} msg={m} isOwn={m.user_id === user.uid} />
+            ))}
+            <div ref={chatEndRef} />
+          </>
         )}
-
         {activeTab === "files" && (
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "1fr 1fr",
-              gap: "12px",
+              gap: "10px",
             }}
           >
-            {files.length === 0 ? (
-              <div style={{ gridColumn: "1/3" }}>
-                <EmptyState
-                  icon={<Upload size={48} />}
-                  text={
-                    lang === "en"
-                      ? "No files shared yet"
-                      : "لم يتم مشاركة ملفات بعد"
-                  }
-                />
-              </div>
-            ) : (
-              files.map((file) => <FileCard key={file.id} file={file} />)
-            )}
+            {files.map((f) => (
+              <FileCard key={f.id} file={f} />
+            ))}
           </div>
         )}
+        {activeTab === "activity" &&
+          activities.map((a) => (
+            <ActivityItem key={a.id} act={a} lang={lang} />
+          ))}
       </div>
 
-      {/* Conditional Inputs */}
       <div
         style={{
-          padding: "16px",
+          padding: "15px",
           borderTop: "1px solid #eee",
           background: "white",
         }}
       >
         {activeTab === "tasks" && (
-          <div
-            style={{ display: "flex", flexDirection: "column", gap: "10px" }}
-          >
-            <div style={{ display: "flex", gap: "10px" }}>
-              <select
-                value={selectedMember}
-                onChange={(e) => setSelectedMember(e.target.value)}
-                style={{
-                  padding: "10px",
-                  borderRadius: "10px",
-                  border: "1px solid #ddd",
-                  background: "#f5f5f5",
-                  fontSize: "13px",
-                }}
-              >
-                <option value="">{lang === "ar" ? "للجميع" : "Anyone"}</option>
-                {members.map((m) => (
-                  <option key={m.user_id} value={m.user_id}>
-                    {m.profiles?.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="text"
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                placeholder={
-                  lang === "en" ? "Add group task..." : "أضف مهمة للمجموعة..."
-                }
-                style={{
-                  flex: 1,
-                  padding: "12px",
-                  border: "1px solid #ddd",
-                  borderRadius: "12px",
-                }}
-                onKeyPress={(e) => e.key === "Enter" && createTask()}
-              />
-              <button
-                onClick={createTask}
-                disabled={loading || !newTaskTitle.trim()}
-                style={{
-                  background: "#629FAD",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "12px",
-                  width: "45px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Plus size={24} />
-              </button>
-            </div>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <select
+              value={selectedMember}
+              onChange={(e) => setSelectedMember(e.target.value)}
+              style={{
+                padding: "10px",
+                borderRadius: "10px",
+                border: "1px solid #eee",
+                fontSize: "12px",
+                background: "#f5f5f5",
+              }}
+            >
+              <option value="">{lang === "ar" ? "للجميع" : "Anyone"}</option>
+              {members.map((m) => (
+                <option key={m.user_id} value={m.user_id}>
+                  {m.profiles?.name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              placeholder="..."
+              style={{
+                flex: 1,
+                padding: "10px",
+                border: "1px solid #eee",
+                borderRadius: "10px",
+              }}
+            />
+            <button
+              onClick={createTask}
+              style={{
+                background: "#629FAD",
+                color: "white",
+                border: "none",
+                borderRadius: "10px",
+                padding: "10px",
+              }}
+            >
+              <Plus />
+            </button>
           </div>
         )}
-
         {activeTab === "chat" && (
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             <button
               onClick={() => fileInputRef.current.click()}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#629FAD",
-                cursor: "pointer",
-              }}
+              style={{ background: "none", border: "none", color: "#629FAD" }}
             >
-              <Paperclip size={22} />
+              <Paperclip />
             </button>
             <input
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              placeholder={
-                lang === "en" ? "Type something..." : "اكتب شيئاً..."
-              }
+              onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+              placeholder="..."
               style={{
                 flex: 1,
                 padding: "12px",
-                border: "1px solid #ddd",
-                borderRadius: "24px",
+                border: "1px solid #eee",
+                borderRadius: "20px",
                 background: "#f9f9f9",
               }}
-              onKeyPress={(e) => e.key === "Enter" && sendMessage()}
             />
             <button
               onClick={sendMessage}
-              disabled={loading || !newMessage.trim()}
               style={{
                 background: "#629FAD",
                 color: "white",
@@ -561,46 +477,28 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                 borderRadius: "50%",
                 width: "40px",
                 height: "40px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
               }}
             >
-              <Send size={20} />
+              <Send size={18} />
             </button>
           </div>
         )}
-
         {activeTab === "files" && (
           <button
             onClick={() => fileInputRef.current.click()}
-            disabled={uploading}
             style={{
               width: "100%",
-              padding: "14px",
+              padding: "12px",
               background: "#629FAD",
               color: "white",
               border: "none",
-              borderRadius: "15px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "10px",
-              cursor: "pointer",
+              borderRadius: "12px",
             }}
           >
-            {uploading ? (
-              "..."
-            ) : (
-              <>
-                <Upload size={20} />{" "}
-                {lang === "ar" ? "رفع ملف أو صورة" : "Upload File/Image"}
-              </>
-            )}
+            {uploading ? "..." : lang === "ar" ? "رفع ملف" : "Upload File"}
           </button>
         )}
       </div>
-
       <input
         type="file"
         ref={fileInputRef}
@@ -611,84 +509,50 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   );
 }
 
-// Sub-components
-function EmptyState({ icon, text }) {
-  return (
-    <div style={{ textAlign: "center", padding: "60px 20px", color: "#bbb" }}>
-      <div style={{ marginBottom: "15px", opacity: 0.3 }}>{icon}</div>
-      <p style={{ margin: 0, fontSize: "16px" }}>{text}</p>
-    </div>
-  );
-}
-
-function TaskCard({ task, onToggle, lang, user }) {
-  const isCompleted = task.status === "completed";
+function TaskCard({ task, onToggle, lang }) {
+  const isDone = task.status === "completed";
   return (
     <div
       style={{
-        padding: "15px",
+        padding: "14px",
         background: "white",
-        borderRadius: "15px",
-        border: "1px solid #f0f0f0",
+        borderRadius: "12px",
+        marginBottom: "10px",
         display: "flex",
         alignItems: "center",
-        gap: "12px",
-        boxShadow: "0 2px 5px rgba(0,0,0,0.02)",
+        gap: "10px",
+        border: "1px solid #f0f0f0",
       }}
     >
-      <button
-        onClick={onToggle}
-        style={{
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          transition: "transform 0.1s",
-        }}
-      >
-        {isCompleted ? (
-          <CheckCircle2 size={24} color="#4CAF50" />
+      <button onClick={onToggle} style={{ background: "none", border: "none" }}>
+        {isDone ? (
+          <CheckCircle2 size={22} color="#4CAF50" />
         ) : (
-          <Circle size={24} color="#ddd" />
+          <Circle size={22} color="#ddd" />
         )}
       </button>
       <div style={{ flex: 1 }}>
         <p
           style={{
             margin: 0,
-            fontSize: "15px",
-            textDecoration: isCompleted ? "line-through" : "none",
-            color: isCompleted ? "#aaa" : "#333",
+            fontSize: "14px",
+            textDecoration: isDone ? "line-through" : "none",
+            color: isDone ? "#aaa" : "#333",
           }}
         >
           {task.title}
         </p>
-        <div style={{ display: "flex", gap: "10px", marginTop: "5px" }}>
-          <span
-            style={{
-              fontSize: "11px",
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              color: "#888",
-              background: "#f5f5f5",
-              padding: "2px 8px",
-              borderRadius: "10px",
-            }}
-          >
-            <User size={10} />
-            {task.assigned_member?.name ||
-              (lang === "ar" ? "للجميع" : "Anyone")}
-          </span>
-          {isCompleted && task.completed_at && (
-            <span style={{ fontSize: "10px", color: "#4CAF50" }}>
-              ✓{" "}
-              {new Date(task.completed_at).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-          )}
-        </div>
+        <span
+          style={{
+            fontSize: "10px",
+            color: "#999",
+            background: "#f5f5f5",
+            padding: "2px 6px",
+            borderRadius: "8px",
+          }}
+        >
+          {task.assigned_member?.name || (lang === "ar" ? "للجميع" : "Anyone")}
+        </span>
       </div>
     </div>
   );
@@ -702,15 +566,16 @@ function MessageItem({ msg, isOwn }) {
         flexDirection: "column",
         alignSelf: isOwn ? "flex-end" : "flex-start",
         maxWidth: "80%",
+        marginBottom: "12px",
       }}
     >
       {!isOwn && (
         <span
           style={{
-            fontSize: "11px",
-            color: "#888",
-            marginBottom: "4px",
-            marginLeft: "12px",
+            fontSize: "10px",
+            color: "#999",
+            marginLeft: "10px",
+            marginBottom: "2px",
           }}
         >
           {msg.profiles?.name}
@@ -718,71 +583,72 @@ function MessageItem({ msg, isOwn }) {
       )}
       <div
         style={{
-          padding: "12px 16px",
-          borderRadius: isOwn ? "20px 20px 2px 20px" : "20px 20px 20px 2px",
-          background: isOwn ? "#629FAD" : "#f1f1f1",
+          padding: "10px 14px",
+          borderRadius: "15px",
+          background: isOwn ? "#629FAD" : "#eee",
           color: isOwn ? "white" : "#333",
-          boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-          position: "relative",
         }}
       >
         {msg.file_url ? (
-          <div
-            onClick={() => window.open(msg.file_url, "_blank")}
-            style={{ cursor: "pointer" }}
-          >
-            {msg.file_url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-              <img
-                src={msg.file_url}
-                alt="Shared"
-                style={{
-                  maxWidth: "100%",
-                  borderRadius: "10px",
-                  marginBottom: "8px",
-                }}
-              />
-            ) : (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  background: "rgba(0,0,0,0.05)",
-                  padding: "10px",
-                  borderRadius: "10px",
-                }}
-              >
-                <FileText size={20} />
-                <span
-                  style={{
-                    fontSize: "13px",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {msg.file_name}
-                </span>
-              </div>
-            )}
-          </div>
+          msg.file_url.match(/\.(jpg|jpeg|png|gif)$/i) ? (
+            <img
+              src={msg.file_url}
+              style={{ maxWidth: "100%", borderRadius: "8px" }}
+            />
+          ) : (
+            <div style={{ display: "flex", gap: "5px" }}>
+              <FileText size={16} />{" "}
+              <span style={{ fontSize: "12px" }}>{msg.file_name}</span>
+            </div>
+          )
         ) : (
-          <p style={{ margin: 0, fontSize: "14px", lineHeight: "1.5" }}>
-            {msg.message}
-          </p>
+          <p style={{ margin: 0, fontSize: "14px" }}>{msg.message}</p>
         )}
-        <span
-          style={{
-            fontSize: "9px",
-            opacity: 0.6,
-            marginTop: "6px",
-            display: "block",
-            textAlign: isOwn ? "right" : "left",
-          }}
-        >
-          {new Date(msg.created_at).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+      </div>
+    </div>
+  );
+}
+
+function ActivityItem({ act, lang }) {
+  const getLabel = () => {
+    if (act.action_type === "task_created")
+      return lang === "ar" ? "أنشأ مهمة:" : "Created task:";
+    if (act.action_type === "task_completed")
+      return lang === "ar" ? "أكمل المهمة:" : "Completed task:";
+    if (act.action_type === "file_uploaded")
+      return lang === "ar" ? "رفع ملفاً:" : "Uploaded file:";
+    return act.action_type;
+  };
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: "10px",
+        padding: "10px 0",
+        borderBottom: "1px solid #f9f9f9",
+      }}
+    >
+      <div
+        style={{
+          width: "32px",
+          height: "32px",
+          borderRadius: "50%",
+          background: "#f0f0f0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "12px",
+        }}
+      >
+        {act.profiles?.name?.charAt(0)}
+      </div>
+      <div>
+        <p style={{ margin: 0, fontSize: "13px" }}>
+          <span style={{ fontWeight: "bold" }}>{act.profiles?.name}</span>{" "}
+          {getLabel()} <span style={{ color: "#629FAD" }}>{act.content}</span>
+        </p>
+        <span style={{ fontSize: "10px", color: "#bbb" }}>
+          {new Date(act.created_at).toLocaleTimeString()}
         </span>
       </div>
     </div>
@@ -790,55 +656,58 @@ function MessageItem({ msg, isOwn }) {
 }
 
 function FileCard({ file }) {
-  const isImage = file.file_type === "image";
   return (
     <div
       onClick={() => window.open(file.file_url, "_blank")}
       style={{
         background: "white",
-        borderRadius: "12px",
-        border: "1px solid #f0f0f0",
+        borderRadius: "10px",
+        border: "1px solid #eee",
         overflow: "hidden",
         cursor: "pointer",
-        transition: "transform 0.2s",
       }}
     >
-      {isImage ? (
+      {file.file_type === "image" ? (
         <img
           src={file.file_url}
-          style={{ width: "100%", height: "100px", objectFit: "cover" }}
-          alt="Thumbnail"
+          style={{ width: "100%", height: "80px", objectFit: "cover" }}
         />
       ) : (
         <div
           style={{
-            height: "100px",
+            height: "80px",
+            background: "#f9f9f9",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background: "#f9f9f9",
           }}
         >
-          <FileText size={32} color="#629FAD" />
+          <FileText color="#629FAD" />
         </div>
       )}
-      <div style={{ padding: "8px" }}>
+      <div style={{ padding: "5px" }}>
         <p
           style={{
             margin: 0,
-            fontSize: "12px",
-            whiteSpace: "nowrap",
+            fontSize: "10px",
+            fontWeight: "bold",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            fontWeight: "bold",
+            whiteSpace: "nowrap",
           }}
         >
           {file.file_name}
         </p>
-        <p style={{ margin: "2px 0 0 0", fontSize: "10px", color: "#999" }}>
-          {file.profiles?.name}
-        </p>
       </div>
+    </div>
+  );
+}
+
+function EmptyState({ icon, text }) {
+  return (
+    <div style={{ textAlign: "center", padding: "40px", color: "#ccc" }}>
+      {icon}
+      <p>{text}</p>
     </div>
   );
 }
