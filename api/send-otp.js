@@ -1,6 +1,9 @@
 const nodemailer = require("nodemailer");
 
 module.exports = async function handler(req, res) {
+  console.log("🚀 API Function called!");
+  console.log("Method:", req.method);
+
   // Allow CORS
   res.setHeader("Access-Control-Allow-Credentials", true);
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -14,15 +17,23 @@ module.exports = async function handler(req, res) {
   );
 
   if (req.method === "OPTIONS") {
+    console.log("✅ OPTIONS request handled");
     res.status(200).end();
     return;
   }
 
   if (req.method !== "POST") {
+    console.log("❌ Method not allowed:", req.method);
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Check environment variables
+  console.log("🔍 Checking environment variables...");
+  console.log("EMAIL_USER:", process.env.EMAIL_USER ? "✅ SET" : "❌ MISSING");
+  console.log("EMAIL_PASS:", process.env.EMAIL_PASS ? "✅ SET" : "❌ MISSING");
+
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    console.error("❌ Missing environment variables!");
     return res.status(500).json({
       success: false,
       error:
@@ -33,6 +44,8 @@ module.exports = async function handler(req, res) {
   const { email, name, otp } = req.body;
 
   console.log(`📧 Attempting to send OTP to: ${email}`);
+  console.log(`👤 Name: ${name}`);
+  console.log(`🔢 OTP: ${otp}`);
 
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
@@ -67,9 +80,11 @@ module.exports = async function handler(req, res) {
     console.log(`⏳ Sending email...`);
     const info = await transporter.sendMail(mailOptions);
     console.log(`✅ OTP sent successfully to ${email}`);
-    res.status(200).json({ success: true });
+    console.log(`📨 Message ID: ${info.messageId}`);
+    res.status(200).json({ success: true, messageId: info.messageId });
   } catch (error) {
     console.error("❌ Nodemailer Error:", error);
+    console.error("Error details:", error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 };
