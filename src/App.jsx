@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
+import { GroupsScreen } from "./GroupsScreen";
 
 const PALETTE = {
   NAVY: "#394867",
@@ -973,6 +974,10 @@ export default function App() {
             handleLogout={handleLogout}
             journals={journals}
           />
+        );
+      case "groups":
+        return (
+          <GroupsScreen t={t} lang={lang} setScreen={setScreen} user={user} />
         );
       case "all-journals":
         return <AllJournalsScreen {...commonProps} journals={journals} />;
