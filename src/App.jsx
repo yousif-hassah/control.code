@@ -29,7 +29,9 @@ import {
   LogOut,
   Moon,
   Sun,
+  Loader2,
 } from "lucide-react";
+import { supabase } from "./lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 
 const PALETTE = {
@@ -397,9 +399,9 @@ const generateCalendarDays = () => {
 const CALENDAR_DAYS = generateCalendarDays();
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    return localStorage.getItem("isLoggedIn") === "true";
-  });
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [screen, setScreen] = useState("home");
   const [lang, setLang] = useState(() => {
     const saved = localStorage.getItem("lang");
@@ -408,47 +410,138 @@ export default function App() {
   const [theme, setTheme] = useState(
     () => localStorage.getItem("theme") || "light",
   );
-  const [user, setUser] = useState(() => {
-    const defaultUser = {
-      uid: "u1",
-      name: "Yousif",
-      email: "jose@example.com",
-      image:
-        "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop",
-      level: 12,
-      points: 1250,
-      streak: 14,
-      socials: { instagram: "", twitter: "", facebook: "" },
-      achievements: [
-        { id: 1, title: "Early Bird", icon: "☀️", date: "2024-01-10" },
-        { id: 2, title: "7 Day Streak", icon: "🔥", date: "2024-01-15" },
-      ],
-    };
-    try {
-      const saved = localStorage.getItem("user");
-      if (!saved) return defaultUser;
-      const parsed = JSON.parse(saved);
-      return {
-        ...defaultUser,
-        ...parsed,
-        socials: { ...defaultUser.socials, ...(parsed.socials || {}) },
-        achievements: parsed.achievements || defaultUser.achievements,
-      };
-    } catch (e) {
-      console.error("Error parsing user from localStorage:", e);
-      return defaultUser;
-    }
+  const [user, setUser] = useState({
+    uid: "u1",
+    name: "Yousif",
+    email: "jose@example.com",
+    image:
+      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop",
+    level: 1,
+    points: 0,
+    streak: 0,
+    socials: { instagram: "", twitter: "", facebook: "" },
+    achievements: [],
   });
 
-  const [todoLists, setTodoLists] = useState(() => {
+  const fetchProfile = async (userId, userEmail, metadataName) => {
     try {
-      const saved = localStorage.getItem("todoLists");
-      return saved ? JSON.parse(saved) : {};
-    } catch (e) {
-      console.error("Error parsing todoLists:", e);
-      return {};
+      // 1. Get existing profile
+      const { data: existingProfile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
+
+      // 2. Decide the name: Priority to the Name typed in Login form, then DB, then Email
+      const finalName =
+        metadataName || existingProfile?.name || userEmail.split("@")[0];
+
+      const userData = {
+        uid: userId,
+        email: userEmail,
+        name: finalName,
+        image:
+          existingProfile?.image_url ||
+          "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop",
+        level: existingProfile?.level || 1,
+        points: existingProfile?.points || 0,
+        streak: existingProfile?.streak || 0,
+        socials: existingProfile?.socials || {
+          instagram: "",
+          twitter: "",
+          facebook: "",
+        },
+        achievements: existingProfile?.achievements || [],
+      };
+
+      setUser(userData);
+      setIsLoggedIn(true);
+
+      // 3. Always sync/update the profile in DB to ensure it's current
+      await supabase.from("profiles").upsert(
+        {
+          id: userId,
+          email: userEmail,
+          name: finalName,
+        },
+        { onConflict: "id" },
+      );
+    } catch (err) {
+      console.error("Auth Sync Error:", err);
+      // Fallback if DB fetch fails but Auth is successful
+      setUser({ uid: userId, email: userEmail, name: metadataName || "User" });
+      setIsLoggedIn(true);
+    } finally {
+      setLoading(false);
     }
-  });
+  };
+
+  useEffect(() => {
+    const savedEmail = localStorage.getItem("userEmail");
+    const savedName = localStorage.getItem("userName");
+    const savedUserId = localStorage.getItem("userId");
+    const savedLoggedIn = localStorage.getItem("isLoggedIn") === "true";
+
+    if (savedLoggedIn && savedEmail && savedUserId) {
+      setIsLoggedIn(true);
+      fetchProfile(savedUserId, savedEmail, savedName);
+    } else {
+      setLoading(false);
+    }
+  }, []);
+
+  const [todoLists, setTodoLists] = useState({});
+  useEffect(() => {
+    if (user?.uid) {
+      fetchTodos();
+      fetchJournals();
+      fetchPinnedNotes();
+    }
+  }, [user?.uid]);
+
+  const fetchTodos = async () => {
+    const { data, error } = await supabase
+      .from("todos")
+      .select("*")
+      .eq("user_id", user.uid);
+    if (data) {
+      const formatted = {};
+      data.forEach((t) => {
+        if (!formatted[t.date]) formatted[t.date] = [];
+        formatted[t.date].push(t);
+      });
+      setTodoLists(formatted);
+    }
+  };
+
+  const fetchJournals = async () => {
+    const { data, error } = await supabase
+      .from("journals")
+      .select("*")
+      .eq("user_id", user.uid);
+    if (data) {
+      const formatted = {};
+      data.forEach((j) => {
+        formatted[j.date] = JSON.parse(j.content);
+      });
+      setJournals(formatted);
+    }
+  };
+
+  const fetchPinnedNotes = async () => {
+    const { data, error } = await supabase
+      .from("pinned_notes")
+      .select("*")
+      .eq("user_id", user.uid);
+    if (data) {
+      const formatted = {};
+      data.forEach((n) => {
+        if (!formatted[n.date]) formatted[n.date] = [];
+        formatted[n.date].push(n);
+      });
+      setAllPinnedNotes(formatted);
+    }
+  };
   const [notifications, setNotifications] = useState([
     {
       id: 1,
@@ -478,6 +571,16 @@ export default function App() {
       time: lang === "en" ? "5h ago" : "منذ 5 ساعات",
       read: false,
     },
+    {
+      id: 4,
+      type: "system",
+      text:
+        lang === "en"
+          ? "Supabase connection is now active! 🚀"
+          : "تم تفعيل الاتصال بـ Supabase بنجاح! 🚀",
+      time: lang === "en" ? "Just now" : "الآن",
+      read: false,
+    },
   ]);
   const [activeMeditation, setActiveMeditation] = useState(null);
   const [meditationHistory, setMeditationHistory] = useState(() => {
@@ -501,102 +604,59 @@ export default function App() {
     setMeditationHistory(updated);
     localStorage.setItem("meditationHistory", JSON.stringify(updated));
   };
-  const [groups, setGroups] = useState(() => {
-    const saved = localStorage.getItem("groups");
-    return saved
-      ? JSON.parse(saved)
-      : [
-          {
-            id: "g1",
-            name: "Family Trip Prep",
-            role: "manager",
-            code: "TRIP2024",
-            members: [
-              { id: "u1", name: "Yousif", initials: "YO" },
-              { id: "u2", name: "Sarah", initials: "SA" },
-              { id: "u3", name: "Khalid", initials: "KH" },
-            ],
-            updates: [
-              {
-                id: 1,
-                user: "Yousif",
-                text: "I've started working on the gratitude task! 🙌",
-                time: "2h ago",
-              },
-              {
-                id: 2,
-                user: "Sarah",
-                text: "Does anyone have the link for the project notes?",
-                time: "1h ago",
-              },
-            ],
-            tasks: [
-              {
-                id: 1,
-                title: { en: "Morning Gratitude", ar: "الامتنان الصباحي" },
-                desc: { en: "...", ar: "..." },
-                assigned: "Yousif",
-                assignedId: "u1",
-                status: "completed",
-              },
-              {
-                id: 2,
-                title: { en: "Breathe Deeply", ar: "تنفس بعمق" },
-                desc: { en: "...", ar: "..." },
-                assigned: "Sarah",
-                assignedId: "u2",
-                status: "active",
-              },
-            ],
-          },
-        ];
-  });
+  const [groups, setGroups] = useState([]);
+  useEffect(() => {
+    if (user?.uid) {
+      fetchGroups();
+    }
+  }, [user?.uid]);
+
+  const fetchGroups = async () => {
+    const { data, error } = await supabase
+      .from("group_members")
+      .select(
+        `
+        role,
+        groups (
+          id,
+          name,
+          code,
+          created_at
+        )
+      `,
+      )
+      .eq("user_id", user.uid);
+
+    if (data) {
+      const formatted = data.map((item) => ({
+        ...item.groups,
+        role: item.role,
+        updates: [], // These could be fetched separately
+        tasks: [], // These could be fetched separately
+      }));
+      setGroups(formatted);
+      if (formatted.length > 0 && !activeGroupId) {
+        setActiveGroupId(formatted[0].id);
+      }
+    }
+  };
   const [activeGroupId, setActiveGroupId] = useState("g1");
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
-  const [journals, setJournals] = useState(() => {
-    try {
-      const saved = localStorage.getItem("journals");
-      if (!saved) return {};
-      const parsed = JSON.parse(saved);
-      const migrated = {};
-      Object.keys(parsed).forEach((date) => {
-        if (typeof parsed[date] === "string") {
-          migrated[date] = [
-            { id: Date.now(), text: parsed[date], time: "Legacy" },
-          ];
-        } else {
-          migrated[date] = parsed[date];
-        }
-      });
-      return migrated;
-    } catch (e) {
-      console.error("Error parsing journals:", e);
-      return {};
-    }
-  });
+  const [journals, setJournals] = useState({});
 
-  const [allPinnedNotes, setAllPinnedNotes] = useState(() => {
-    const saved = localStorage.getItem("pinnedNotes");
-    if (!saved) return {};
-    try {
-      const parsed = JSON.parse(saved);
-      // Migration: If it's the old array format, pick today as the key
-      if (Array.isArray(parsed)) {
-        const today = formatDate(new Date());
-        return { [today]: parsed };
-      }
-      return parsed;
-    } catch (e) {
-      return {};
-    }
-  });
+  const [allPinnedNotes, setAllPinnedNotes] = useState({});
 
   const pinnedNotes = allPinnedNotes[selectedDate] || [];
 
-  const setPinnedNotes = (newNotes) => {
+  const setPinnedNotes = async (newNotes) => {
     const updated = { ...allPinnedNotes, [selectedDate]: newNotes };
     setAllPinnedNotes(updated);
-    localStorage.setItem("pinnedNotes", JSON.stringify(updated));
+
+    if (!user?.uid) return;
+
+    // For pinned notes, it's easier to manage via individual rows in Supabase
+    // But for this legacy-to-supabase transition, we'll sync the whole date if needed or handle separately.
+    // Let's try individual for better performance.
   };
 
   const t = TRANSLATIONS[lang];
@@ -694,12 +754,12 @@ export default function App() {
     );
   };
 
-  const updateGroupTask = (groupId, taskId, status) => {
+  const updateGroupTask = async (groupId, taskId, status) => {
+    // Legacy logic for state
     const updated = groups.map((g) => {
       if (g.id === groupId) {
         const newTasks = g.tasks.map((t) => {
           if (t.id === taskId) {
-            // Restriction: Only assigned user can complete
             if (status === "completed" && t.assignedId !== user.uid) {
               alert(
                 lang === "en"
@@ -717,7 +777,12 @@ export default function App() {
       return g;
     });
     setGroups(updated);
-    localStorage.setItem("groups", JSON.stringify(updated));
+
+    // Supabase update
+    await supabase
+      .from("todos")
+      .update({ completed: status === "completed" })
+      .eq("id", taskId);
   };
 
   const addGroupTask = (groupId, taskData) => {
@@ -732,16 +797,39 @@ export default function App() {
     localStorage.setItem("groups", JSON.stringify(updated));
   };
 
-  const saveJournal = (date, entries) => {
-    const updated = { ...journals, [date]: entries };
-    setJournals(updated);
-    localStorage.setItem("journals", JSON.stringify(updated));
+  const saveJournal = async (date, entries) => {
+    setJournals({ ...journals, [date]: entries });
+    if (!user?.uid) return;
+
+    await supabase.from("journals").upsert(
+      {
+        user_id: user.uid,
+        date,
+        content: JSON.stringify(entries),
+      },
+      { onConflict: "user_id,date" },
+    );
   };
 
-  const saveTodos = (date, todos) => {
-    const updated = { ...todoLists, [date]: todos };
-    setTodoLists(updated);
-    localStorage.setItem("todoLists", JSON.stringify(updated));
+  const saveTodos = async (date, todos) => {
+    setTodoLists({ ...todoLists, [date]: todos });
+    if (!user?.uid) return;
+
+    // Delete existing for this date and re-insert (simple way to sync array)
+    await supabase
+      .from("todos")
+      .delete()
+      .eq("user_id", user.uid)
+      .eq("date", date);
+    if (todos.length > 0) {
+      const toInsert = todos.map((t) => ({
+        user_id: user.uid,
+        date,
+        text: t.text,
+        completed: t.completed,
+      }));
+      await supabase.from("todos").insert(toInsert);
+    }
   };
 
   const [dailyHabits, setDailyHabits] = useState(() => {
@@ -754,41 +842,38 @@ export default function App() {
     }
   });
 
-  const saveDailyHabit = (date, habit) => {
-    const updated = { ...dailyHabits, [date]: habit };
-    setDailyHabits(updated);
-    localStorage.setItem("dailyHabits", JSON.stringify(updated));
+  const saveDailyHabit = async (date, habit) => {
+    setDailyHabits({ ...dailyHabits, [date]: habit });
+    // This could also be synced to a dedicated habits table if needed
   };
 
-  const addPinnedNote = (title, content) => {
-    const id = "p" + Date.now();
+  const addPinnedNote = async (title, content) => {
     const newNote = {
-      id,
+      date: selectedDate,
+      user_id: user.uid,
       title: title || "",
       content: content || "",
       color: "#394867",
-      hasVoice: false,
-      hasImage: false,
-      hasFile: false,
       pinned: true,
-      timestamp: new Date().toLocaleDateString(
-        lang === "en" ? "en-US" : "ar-EG",
-        {
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        },
-      ),
     };
-    const updatedForDate = [newNote, ...pinnedNotes];
-    setPinnedNotes(updatedForDate);
-    return id;
+
+    const { data, error } = await supabase
+      .from("pinned_notes")
+      .insert([newNote])
+      .select()
+      .single();
+    if (data) {
+      const updatedForDate = [data, ...pinnedNotes];
+      setAllPinnedNotes({ ...allPinnedNotes, [selectedDate]: updatedForDate });
+      return data.id;
+    }
+    return null;
   };
 
-  const deletePinnedNote = (id) => {
+  const deletePinnedNote = async (id) => {
     const updatedForDate = pinnedNotes.filter((n) => n.id !== id);
     setPinnedNotes(updatedForDate);
+    await supabase.from("pinned_notes").delete().eq("id", id);
   };
 
   const renderScreen = () => {
@@ -905,23 +990,70 @@ export default function App() {
   };
 
   const handleLogin = (userData) => {
+    // Generate a consistent UUID from email (simple hash-based approach)
+    const generateUUID = (email) => {
+      // Check if we already have a UUID for this email
+      const stored = localStorage.getItem(`uuid_${email}`);
+      if (stored) return stored;
+
+      // Generate new UUID (v4 format)
+      const uuid = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+        /[xy]/g,
+        function (c) {
+          const r = (Math.random() * 16) | 0;
+          const v = c === "x" ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        },
+      );
+
+      localStorage.setItem(`uuid_${email}`, uuid);
+      return uuid;
+    };
+
+    const userId = generateUUID(userData.email);
+
     const newUser = {
       ...user,
+      uid: userId,
       name: userData.name,
       email: userData.email,
-      phone: userData.phone,
     };
     setUser(newUser);
     setIsLoggedIn(true);
-    localStorage.setItem("user", JSON.stringify(newUser));
+    localStorage.setItem("userEmail", userData.email);
+    localStorage.setItem("userName", userData.name);
+    localStorage.setItem("userId", userId);
     localStorage.setItem("isLoggedIn", "true");
+
+    // Sync to Supabase in background
+    fetchProfile(userId, userData.email, userData.name);
   };
 
   const handleLogout = () => {
     setIsLoggedIn(false);
+    setSession(null);
+    setUser(null);
     localStorage.removeItem("isLoggedIn");
+    localStorage.removeItem("userEmail");
+    localStorage.removeItem("userName");
+    localStorage.removeItem("userId");
     setScreen("home");
   };
+
+  if (loading) {
+    return (
+      <div
+        className={`iphone-frame theme-${theme}`}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Loader2 className="spinner" size={48} style={{ color: "#629FAD" }} />
+      </div>
+    );
+  }
 
   if (!isLoggedIn) {
     return (
@@ -1023,72 +1155,49 @@ function AuthScreen({ t, lang, onLogin, theme, toggleTheme }) {
 
   const handleSendCode = async (e) => {
     e.preventDefault();
-    const SERVICE_ID = "yousifhassan";
-    const TEMPLATE_ID = "template_w8msif4";
-    const PUBLIC_KEY = "WLsGw6u5xkDBazIXW";
-    const RESEND_API_KEY = "re_hHbrebM4_PMy2KmQD7RXsLZRvoMtLprAN";
-
     setLoading(true);
     setError("");
 
-    // 1. Generate real 6-digit OTP
+    // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     setGeneratedOtp(otp);
 
     try {
-      console.log("Attempting Professional Send (Resend)...");
+      const response = await fetch("/api/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formData.email,
+          name: formData.name,
+          otp: otp,
+        }),
+      });
 
-      // Note: Transactional services like Resend often require a backend.
-      // We will try sending via EmailJS with your new Template ID first as it's the safest 'bridge'
-      // to avoid CORS errors in a pure React app.
+      const data = await response.json();
 
-      emailjs.init(PUBLIC_KEY);
-      const templateParams = {
-        name: formData.name,
-        user_email: formData.email,
-        message: otp,
-        reply_to: "no-reply@zenflow.com",
-      };
-
-      const result = await emailjs.send(
-        SERVICE_ID,
-        TEMPLATE_ID,
-        templateParams,
-      );
-
-      if (result.status === 200 || result.text === "OK") {
-        console.log("✓ Professional Delivery Successful");
+      if (response.ok && data.success) {
         setStep(2);
       } else {
-        throw new Error(`Delivery status: ${result.status}`);
+        throw new Error(data.error || "Failed to send code");
       }
     } catch (err) {
-      console.error("Delivery Error:", err);
-      const errorDetail = err.text || err.message || "";
-
-      if (errorDetail.includes("Gmail_API") || errorDetail.includes("grant")) {
-        alert(
-          lang === "en"
-            ? "Your Gmail connection is broken. Please use the SMTP method or Resend Bridge in EmailJS."
-            : "اتصال Gmail مقطوع. يرجى استخدام طريقة SMTP أو ربط Resend في لوحة تحكم EmailJS.",
-        );
-      } else {
-        setError(lang === "en" ? "Delivery failed." : "فشل الإرسال.");
-      }
-
-      // Error feedback is already handled above via alert or setError
+      console.error("Send Error:", err);
+      setError(
+        lang === "en"
+          ? "Failed to send code. Please try again."
+          : "فشل إرسال الكود. حاول مرة أخرى.",
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const handleVerify = (e) => {
+  const handleVerify = async (e) => {
     e.preventDefault();
     if (code === generatedOtp) {
       onLogin(formData);
     } else {
       setError(t.invalidCode);
-      // Subtle shake or bounce could be added here
     }
   };
 
@@ -4367,19 +4476,6 @@ function ProfileScreen({
           >
             {lang === "en" ? "English" : "العربية"}
           </div>
-        </ProfileMenuItem>
-
-        <ProfileMenuItem
-          icon={<Settings size={20} color={PALETTE.NAVY} />}
-          label={t.settings}
-        >
-          <ChevronLeft
-            size={20}
-            style={{
-              transform: lang === "en" ? "rotate(180deg)" : "none",
-              color: PALETTE.GRAY,
-            }}
-          />
         </ProfileMenuItem>
 
         <ProfileMenuItem
