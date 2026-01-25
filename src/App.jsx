@@ -418,24 +418,24 @@ export default function App() {
 
   const fetchProfile = async (userId, userEmail, metadataName) => {
     try {
-      // 1. Get existing profile
-      const { data: existingProfile, error: fetchError } = await supabase
+      // 1. Get existing profile by ID or Email (strict check)
+      let { data: existingProfile, error: fetchError } = await supabase
         .from("profiles")
         .select("*")
-        .eq("id", userId)
+        .eq("email", userEmail)
         .maybeSingle();
 
       if (fetchError) {
         console.error("Supabase Profile Fetch Error:", fetchError);
-        throw fetchError;
       }
 
-      // 2. Decide the name: Priority to DB, then Login form, then Email
+      // 2. Decide the final data
       const finalName =
         existingProfile?.name || metadataName || userEmail.split("@")[0];
+      const finalId = existingProfile?.id || userId;
 
       const userData = {
-        uid: userId,
+        uid: finalId,
         email: userEmail,
         name: finalName,
         image:
@@ -455,30 +455,26 @@ export default function App() {
       setUser(userData);
       setIsLoggedIn(true);
 
-      // 3. Always sync/update the profile in DB to ensure it's current (if it doesn't exist)
-      if (!existingProfile) {
-        await supabase.from("profiles").upsert(
-          {
-            id: userId,
-            email: userEmail,
-            name: finalName,
-            image_url: userData.image,
-          },
-          { onConflict: "id" },
-        );
-      }
+      // Save to local storage for persistence
+      localStorage.setItem("userId", finalId);
+      localStorage.setItem("userEmail", userEmail);
+      localStorage.setItem("userName", finalName);
+
+      // 3. Sync/Create if missing
+      const { error: upsertError } = await supabase.from("profiles").upsert(
+        {
+          id: finalId,
+          email: userEmail,
+          name: finalName,
+          image_url: userData.image,
+        },
+        { onConflict: "email" },
+      );
+
+      if (upsertError) console.error("Profile Sync Error:", upsertError);
     } catch (err) {
-      console.error("Auth Sync Error:", err);
-      // Fallback if DB fetch fails but Auth is successful
-      setUser({
-        uid: userId,
-        email: userEmail,
-        name: metadataName || "User",
-        image:
-          "https://api.dicebear.com/7.x/initials/svg?seed=" +
-          (metadataName || userEmail),
-      });
-      setIsLoggedIn(true);
+      console.error("Critical Auth Sync Error:", err);
+      setLoading(false);
     } finally {
       setLoading(false);
     }
@@ -764,24 +760,24 @@ export default function App() {
         );
       }
 
-      // Sync to Supabase
+      // Sync to Supabase using Email as conflict key to prevent duplicates
       const { error } = await supabase.from("profiles").upsert(
         {
           id: user.uid,
+          email: user.email,
           name: updatedUser.name,
           image_url: updatedUser.image,
           socials: updatedUser.socials,
-          email: user.email,
         },
-        { onConflict: "id" },
+        { onConflict: "email" },
       );
 
       if (error) {
         console.error("Supabase Profile Sync Error:", error);
         alert(
           lang === "en"
-            ? "Failed to save profile to cloud."
-            : "فشل حفظ الملف الشخصي سحابياً.",
+            ? "Cloud Sync Failed: Connection issue or storage full."
+            : "فشل المزامنة: مشكلة في الاتصال أو مساحة التخزين.",
         );
       }
     } catch (err) {
@@ -1124,20 +1120,16 @@ export default function App() {
   const handleLogin = async (userData) => {
     setLoading(true);
     try {
-      // 1. First, check if a profile already exists for this email
-      const { data: profileByEmail } = await supabase
+      // 1. Check if profile exists with this email
+      const { data: existingProfile } = await supabase
         .from("profiles")
         .select("id")
         .eq("email", userData.email)
         .maybeSingle();
 
-      let userId;
-      if (profileByEmail) {
-        // Use existing ID
-        userId = profileByEmail.id;
-      } else {
-        // Generate a new UUID if this is a truly new user
-        const generateUUID = () => {
+      const userId =
+        existingProfile?.id ||
+        (function () {
           return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
             /[xy]/g,
             function (c) {
@@ -1146,32 +1138,22 @@ export default function App() {
               return v.toString(16);
             },
           );
-        };
-        userId = generateUUID();
-      }
+        })();
 
-      const newUser = {
-        uid: userId,
-        name: userData.name,
-        email: userData.email,
-        level: 1,
-        points: 0,
-        streak: 0,
-        socials: { instagram: "", twitter: "", facebook: "" },
-        achievements: [],
-      };
-
-      setUser(newUser);
-      setIsLoggedIn(true);
+      // 2. Clear previous login data to prevent conflicts
+      localStorage.clear();
       localStorage.setItem("userEmail", userData.email);
       localStorage.setItem("userName", userData.name);
       localStorage.setItem("userId", userId);
       localStorage.setItem("isLoggedIn", "true");
+      localStorage.setItem("lang", lang);
+      localStorage.setItem("theme", theme);
 
-      // 2. Fetch/Create profile in Supabase
+      // 3. Fetch/Create profile
       await fetchProfile(userId, userData.email, userData.name);
     } catch (err) {
       console.error("Login Error:", err);
+      alert("Login failed, please check your connection.");
     } finally {
       setLoading(false);
     }
