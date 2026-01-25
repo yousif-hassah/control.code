@@ -418,7 +418,7 @@ export default function App() {
 
   const fetchProfile = async (userId, userEmail, metadataName) => {
     try {
-      // 1. Get existing profile by ID or Email (strict check)
+      // 1. Find profile by email first (Our primary unique key)
       let { data: existingProfile, error: fetchError } = await supabase
         .from("profiles")
         .select("*")
@@ -429,18 +429,19 @@ export default function App() {
         console.error("Supabase Profile Fetch Error:", fetchError);
       }
 
-      // 2. Decide the final data
+      // 2. Resolve Data: Keep DB name if it exists (don't allow change via login)
       const finalName =
         existingProfile?.name || metadataName || userEmail.split("@")[0];
       const finalId = existingProfile?.id || userId;
+      const finalImage =
+        existingProfile?.image_url ||
+        "https://api.dicebear.com/7.x/initials/svg?seed=" + finalName;
 
       const userData = {
         uid: finalId,
         email: userEmail,
         name: finalName,
-        image:
-          existingProfile?.image_url ||
-          "https://api.dicebear.com/7.x/initials/svg?seed=" + finalName,
+        image: finalImage,
         level: existingProfile?.level || 1,
         points: existingProfile?.points || 0,
         streak: existingProfile?.streak || 0,
@@ -455,25 +456,27 @@ export default function App() {
       setUser(userData);
       setIsLoggedIn(true);
 
-      // Save to local storage for persistence
+      // Store in local storage to recover faster on refresh
       localStorage.setItem("userId", finalId);
       localStorage.setItem("userEmail", userEmail);
       localStorage.setItem("userName", finalName);
 
-      // 3. Sync/Create if missing
+      // 3. Upsert to cloud to ensure record exists
       const { error: upsertError } = await supabase.from("profiles").upsert(
         {
           id: finalId,
           email: userEmail,
           name: finalName,
-          image_url: userData.image,
+          image_url: finalImage,
         },
         { onConflict: "email" },
       );
 
-      if (upsertError) console.error("Profile Sync Error:", upsertError);
+      if (upsertError) {
+        console.error("Cloud Upsert Error:", upsertError);
+      }
     } catch (err) {
-      console.error("Critical Auth Sync Error:", err);
+      console.error("Critical Profile Fetch Error:", err);
     } finally {
       setLoading(false);
     }
@@ -1124,10 +1127,10 @@ export default function App() {
   const handleLogin = async (userData) => {
     setLoading(true);
     try {
-      // 1. Check if profile exists with this email
+      // 1. Strict Email Check: Find existing user id
       const { data: existingProfile } = await supabase
         .from("profiles")
-        .select("id")
+        .select("id, name")
         .eq("email", userData.email)
         .maybeSingle();
 
@@ -1144,20 +1147,19 @@ export default function App() {
           );
         })();
 
-      // 2. Clear previous login data to prevent conflicts
+      // 2. Prep storage
       localStorage.clear();
       localStorage.setItem("userEmail", userData.email);
-      localStorage.setItem("userName", userData.name);
       localStorage.setItem("userId", userId);
       localStorage.setItem("isLoggedIn", "true");
       localStorage.setItem("lang", lang);
       localStorage.setItem("theme", theme);
 
-      // 3. Fetch/Create profile
+      // 3. Fetch (and lock name if exists)
       await fetchProfile(userId, userData.email, userData.name);
     } catch (err) {
       console.error("Login Error:", err);
-      alert("Login failed, please check your connection.");
+      alert("Login failed: " + err.message);
     } finally {
       setLoading(false);
     }
