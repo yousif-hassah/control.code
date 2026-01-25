@@ -509,46 +509,90 @@ export default function App() {
   }, [user?.uid]);
 
   const fetchTodos = async () => {
-    const { data, error } = await supabase
-      .from("todos")
-      .select("*")
-      .eq("user_id", user.uid);
-    if (data) {
-      const formatted = {};
-      data.forEach((t) => {
-        if (!formatted[t.date]) formatted[t.date] = [];
-        formatted[t.date].push(t);
-      });
-      setTodoLists(formatted);
+    if (!user?.uid) return;
+    try {
+      const { data, error } = await supabase
+        .from("todos")
+        .select("*")
+        .eq("user_id", user.uid);
+
+      if (error) {
+        console.error("Fetch Todos Error:", error);
+        return;
+      }
+
+      if (data) {
+        const formatted = {};
+        data.forEach((t) => {
+          const todoDate = t.date || "no-date";
+          if (!formatted[todoDate]) formatted[todoDate] = [];
+          formatted[todoDate].push({
+            ...t,
+            text: t.text || t.title || "", // Support both column names
+          });
+        });
+        setTodoLists(formatted);
+      }
+    } catch (err) {
+      console.error("Unexpected fetchTodos error:", err);
     }
   };
 
   const fetchJournals = async () => {
-    const { data, error } = await supabase
-      .from("journals")
-      .select("*")
-      .eq("user_id", user.uid);
-    if (data) {
-      const formatted = {};
-      data.forEach((j) => {
-        formatted[j.date] = JSON.parse(j.content);
-      });
-      setJournals(formatted);
+    if (!user?.uid) return;
+    try {
+      const { data, error } = await supabase
+        .from("journals")
+        .select("*")
+        .eq("user_id", user.uid);
+
+      if (error) {
+        console.error("Fetch Journals Error:", error);
+        return;
+      }
+
+      if (data) {
+        const formatted = {};
+        data.forEach((j) => {
+          try {
+            formatted[j.date] =
+              typeof j.content === "string" ? JSON.parse(j.content) : j.content;
+          } catch (e) {
+            console.error("Journal parse error for date:", j.date, e);
+            formatted[j.date] = { entries: [] };
+          }
+        });
+        setJournals(formatted);
+      }
+    } catch (err) {
+      console.error("Unexpected fetchJournals error:", err);
     }
   };
 
   const fetchPinnedNotes = async () => {
-    const { data, error } = await supabase
-      .from("pinned_notes")
-      .select("*")
-      .eq("user_id", user.uid);
-    if (data) {
-      const formatted = {};
-      data.forEach((n) => {
-        if (!formatted[n.date]) formatted[n.date] = [];
-        formatted[n.date].push(n);
-      });
-      setAllPinnedNotes(formatted);
+    if (!user?.uid) return;
+    try {
+      const { data, error } = await supabase
+        .from("pinned_notes")
+        .select("*")
+        .eq("user_id", user.uid);
+
+      if (error) {
+        console.error("Fetch PinnedNotes Error:", error);
+        return;
+      }
+
+      if (data) {
+        const formatted = {};
+        data.forEach((n) => {
+          const noteDate = n.date || selectedDate; // Fallback if date is missing
+          if (!formatted[noteDate]) formatted[noteDate] = [];
+          formatted[noteDate].push(n);
+        });
+        setAllPinnedNotes(formatted);
+      }
+    } catch (err) {
+      console.error("Unexpected fetchPinnedNotes error:", err);
     }
   };
 
@@ -867,34 +911,49 @@ export default function App() {
     setJournals({ ...journals, [date]: entries });
     if (!user?.uid) return;
 
-    await supabase.from("journals").upsert(
-      {
-        user_id: user.uid,
-        date,
-        content: JSON.stringify(entries),
-      },
-      { onConflict: "user_id,date" },
-    );
+    try {
+      const { error } = await supabase.from("journals").upsert(
+        {
+          user_id: user.uid,
+          date,
+          content: JSON.stringify(entries),
+        },
+        { onConflict: "user_id,date" },
+      );
+      if (error) console.error("Journal Save Error:", error);
+    } catch (err) {
+      console.error("Unexpected saveJournal error:", err);
+    }
   };
 
   const saveTodos = async (date, todos) => {
     setTodoLists({ ...todoLists, [date]: todos });
     if (!user?.uid) return;
 
-    // Delete existing for this date and re-insert (simple way to sync array)
-    await supabase
-      .from("todos")
-      .delete()
-      .eq("user_id", user.uid)
-      .eq("date", date);
-    if (todos.length > 0) {
-      const toInsert = todos.map((t) => ({
-        user_id: user.uid,
-        date,
-        text: t.text,
-        completed: t.completed,
-      }));
-      await supabase.from("todos").insert(toInsert);
+    try {
+      // Delete existing for this date and re-insert
+      const { error: delError } = await supabase
+        .from("todos")
+        .delete()
+        .eq("user_id", user.uid)
+        .eq("date", date);
+
+      if (delError) console.error("Todo Sync (Delete) Error:", delError);
+
+      if (todos.length > 0) {
+        const toInsert = todos.map((t) => ({
+          user_id: user.uid,
+          date,
+          text: t.text,
+          completed: t.completed,
+        }));
+        const { error: insError } = await supabase
+          .from("todos")
+          .insert(toInsert);
+        if (insError) console.error("Todo Sync (Insert) Error:", insError);
+      }
+    } catch (err) {
+      console.error("Unexpected saveTodos error:", err);
     }
   };
 
@@ -914,32 +973,56 @@ export default function App() {
   };
 
   const addPinnedNote = async (title, content) => {
-    const newNote = {
-      date: selectedDate,
-      user_id: user.uid,
-      title: title || "",
-      content: content || "",
-      color: "#394867",
-      pinned: true,
-    };
+    if (!user?.uid) return null;
+    try {
+      const newNote = {
+        date: selectedDate,
+        user_id: user.uid,
+        title: title || "",
+        content: content || "",
+        color: "#394867",
+        pinned: true,
+      };
 
-    const { data, error } = await supabase
-      .from("pinned_notes")
-      .insert([newNote])
-      .select()
-      .single();
-    if (data) {
-      const updatedForDate = [data, ...pinnedNotes];
-      setAllPinnedNotes({ ...allPinnedNotes, [selectedDate]: updatedForDate });
-      return data.id;
+      const { data, error } = await supabase
+        .from("pinned_notes")
+        .insert([newNote])
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Add PinnedNote Error:", error);
+        return null;
+      }
+
+      if (data) {
+        const updatedForDate = [data, ...pinnedNotes];
+        setAllPinnedNotes({
+          ...allPinnedNotes,
+          [selectedDate]: updatedForDate,
+        });
+        return data.id;
+      }
+    } catch (err) {
+      console.error("Unexpected addPinnedNote error:", err);
     }
     return null;
   };
 
   const deletePinnedNote = async (id) => {
-    const updatedForDate = pinnedNotes.filter((n) => n.id !== id);
-    setPinnedNotes(updatedForDate);
-    await supabase.from("pinned_notes").delete().eq("id", id);
+    if (!user?.uid) return;
+    try {
+      const updatedForDate = pinnedNotes.filter((n) => n.id !== id);
+      setAllPinnedNotes({ ...allPinnedNotes, [selectedDate]: updatedForDate });
+
+      const { error } = await supabase
+        .from("pinned_notes")
+        .delete()
+        .eq("id", id);
+      if (error) console.error("Delete PinnedNote Error:", error);
+    } catch (err) {
+      console.error("Unexpected deletePinnedNote error:", err);
+    }
   };
 
   const renderScreen = () => {

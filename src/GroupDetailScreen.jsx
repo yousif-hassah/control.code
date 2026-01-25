@@ -657,8 +657,8 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                               >
                                 {isMyTask
                                   ? lang === "ar"
-                                    ? "موكلة لي"
-                                    : "Assigned to Me"
+                                    ? "أنا"
+                                    : "Me"
                                   : assignedUser?.profiles?.name ||
                                     (lang === "ar" ? "عضو" : "Member")}
                               </span>
@@ -669,10 +669,13 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                               style={{
                                 fontSize: "10px",
                                 color: "#629FAD",
-                                fontWeight: "600",
+                                fontWeight: "800",
                                 display: "flex",
                                 alignItems: "center",
                                 gap: "4px",
+                                background: "rgba(98, 159, 173, 0.1)",
+                                padding: "2px 8px",
+                                borderRadius: "8px",
                               }}
                             >
                               <Users size={12} />
@@ -697,7 +700,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                               <span
                                 style={{ fontSize: "10px", fontWeight: "700" }}
                               >
-                                {lang === "ar" ? "أكملها: " : "Completed by: "}
+                                {lang === "ar" ? "أنجزها: " : "Done by: "}
                                 {t.completed_by === user.uid
                                   ? lang === "ar"
                                     ? "أنا"
@@ -711,13 +714,25 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                       </div>
 
                       {canComplete && !isCompleted && (
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          style={{ color: "#629FAD", opacity: 0.4 }}
+                        <div
+                          style={{
+                            width: "24px",
+                            height: "24px",
+                            borderRadius: "50%",
+                            border: "2px solid #629FAD",
+                            opacity: 0.3,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
                         >
-                          <MoreVertical size={18} />
-                        </motion.div>
+                          <Check size={12} color="#629FAD" />
+                        </div>
+                      )}
+                      {!canComplete && !isCompleted && (
+                        <div style={{ opacity: 0.2 }}>
+                          <User size={18} />
+                        </div>
                       )}
                     </motion.div>
                   );
@@ -1119,15 +1134,19 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                 }}
               >
                 <option value="">
-                  {lang === "ar" ? "مفتوحة للجميع" : "Open to All"}
+                  {lang === "ar"
+                    ? "✨ مفتوحة للجميع (Open to All)"
+                    : "✨ Open to All"}
                 </option>
                 {members.map((m) => (
                   <option key={m.user_id} value={m.user_id}>
                     {m.user_id === user.uid
                       ? lang === "ar"
-                        ? "أنا (المشرف)"
-                        : "Me (Admin)"
-                      : m.profiles?.name || m.user_id.substring(0, 8)}
+                        ? "👤 أنا (المشرف)"
+                        : "👤 Me (Admin)"
+                      : "👤 " +
+                        (m.profiles?.name ||
+                          (lang === "ar" ? "عضو" : "Member"))}
                   </option>
                 ))}
               </select>
