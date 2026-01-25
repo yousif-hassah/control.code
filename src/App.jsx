@@ -29,6 +29,9 @@ import {
   Moon,
   Sun,
   Loader2,
+  TrendingUp,
+  Activity,
+  BarChart2,
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
@@ -410,18 +413,8 @@ export default function App() {
   const [theme, setTheme] = useState(
     () => localStorage.getItem("theme") || "light",
   );
-  const [user, setUser] = useState({
-    uid: "u1",
-    name: "Yousif",
-    email: "jose@example.com",
-    image:
-      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop",
-    level: 1,
-    points: 0,
-    streak: 0,
-    socials: { instagram: "", twitter: "", facebook: "" },
-    achievements: [],
-  });
+  const [user, setUser] = useState(null);
+  const [groupStats, setGroupStats] = useState({ completed: 0, total: 0 });
 
   const fetchProfile = async (userId, userEmail, metadataName) => {
     try {
@@ -430,11 +423,11 @@ export default function App() {
         .from("profiles")
         .select("*")
         .eq("id", userId)
-        .single();
+        .maybeSingle();
 
-      // 2. Decide the name: Priority to the Name typed in Login form, then DB, then Email
+      // 2. Decide the name: Priority to DB, then Login form, then Email
       const finalName =
-        metadataName || existingProfile?.name || userEmail.split("@")[0];
+        existingProfile?.name || metadataName || userEmail.split("@")[0];
 
       const userData = {
         uid: userId,
@@ -463,6 +456,7 @@ export default function App() {
           id: userId,
           email: userEmail,
           name: finalName,
+          image_url: existingProfile?.image_url || userData.image,
         },
         { onConflict: "id" },
       );
@@ -496,6 +490,7 @@ export default function App() {
       fetchTodos();
       fetchJournals();
       fetchPinnedNotes();
+      fetchGroupStats();
     }
   }, [user?.uid]);
 
@@ -540,6 +535,30 @@ export default function App() {
         formatted[n.date].push(n);
       });
       setAllPinnedNotes(formatted);
+    }
+  };
+
+  const fetchGroupStats = async () => {
+    try {
+      // Get all tasks completed by this user in any group
+      const { data: completedData } = await supabase
+        .from("group_tasks")
+        .select("id")
+        .eq("completed_by", user.uid)
+        .eq("status", "completed");
+
+      // Get all tasks assigned to this user (for success rate)
+      const { data: totalData } = await supabase
+        .from("group_tasks")
+        .select("id")
+        .eq("assigned_to", user.uid);
+
+      setGroupStats({
+        completed: completedData?.length || 0,
+        total: totalData?.length || 0,
+      });
+    } catch (e) {
+      console.error("Error fetching group stats:", e);
     }
   };
   const [notifications, setNotifications] = useState([
@@ -640,7 +659,7 @@ export default function App() {
       }
     }
   };
-  const [activeGroupId, setActiveGroupId] = useState("g1");
+  const [activeGroupId, setActiveGroupId] = useState(null);
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
   const [journals, setJournals] = useState({});
 
@@ -659,7 +678,7 @@ export default function App() {
     // Let's try individual for better performance.
   };
 
-  const t = TRANSLATIONS[lang];
+  const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
 
   const toggleLang = () => {
     const newLang = lang === "en" ? "ar" : "en";
@@ -673,10 +692,23 @@ export default function App() {
     localStorage.setItem("theme", newTheme);
   };
 
-  const updateProfile = (newData) => {
+  const updateProfile = async (newData) => {
+    if (!user?.uid) return;
     const updatedUser = { ...user, ...newData };
     setUser(updatedUser);
     localStorage.setItem("user", JSON.stringify(updatedUser));
+
+    // Sync to Supabase
+    await supabase.from("profiles").upsert(
+      {
+        id: user.uid,
+        name: updatedUser.name,
+        image_url: updatedUser.image,
+        socials: updatedUser.socials,
+        email: user.email,
+      },
+      { onConflict: "id" },
+    );
   };
 
   const addUpdateToGroup = (groupId, text, image = null) => {
@@ -932,6 +964,8 @@ export default function App() {
             journals={journals}
             todoLists={todoLists}
             meditationHistory={meditationHistory}
+            groupStats={groupStats}
+            setScreen={setScreen}
           />
         );
       case "explore":
@@ -970,44 +1004,60 @@ export default function App() {
     }
   };
 
-  const handleLogin = (userData) => {
-    // Generate a consistent UUID from email (simple hash-based approach)
-    const generateUUID = (email) => {
-      // Check if we already have a UUID for this email
-      const stored = localStorage.getItem(`uuid_${email}`);
-      if (stored) return stored;
+  const handleLogin = async (userData) => {
+    setLoading(true);
+    try {
+      // 1. First, check if a profile already exists for this email
+      const { data: profileByEmail } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", userData.email)
+        .maybeSingle();
 
-      // Generate new UUID (v4 format)
-      const uuid = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
-        /[xy]/g,
-        function (c) {
-          const r = (Math.random() * 16) | 0;
-          const v = c === "x" ? r : (r & 0x3) | 0x8;
-          return v.toString(16);
-        },
-      );
+      let userId;
+      if (profileByEmail) {
+        // Use existing ID
+        userId = profileByEmail.id;
+      } else {
+        // Generate a new UUID if this is a truly new user
+        const generateUUID = () => {
+          return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+            /[xy]/g,
+            function (c) {
+              const r = (Math.random() * 16) | 0;
+              const v = c === "x" ? r : (r & 0x3) | 0x8;
+              return v.toString(16);
+            },
+          );
+        };
+        userId = generateUUID();
+      }
 
-      localStorage.setItem(`uuid_${email}`, uuid);
-      return uuid;
-    };
+      const newUser = {
+        uid: userId,
+        name: userData.name,
+        email: userData.email,
+        level: 1,
+        points: 0,
+        streak: 0,
+        socials: { instagram: "", twitter: "", facebook: "" },
+        achievements: [],
+      };
 
-    const userId = generateUUID(userData.email);
+      setUser(newUser);
+      setIsLoggedIn(true);
+      localStorage.setItem("userEmail", userData.email);
+      localStorage.setItem("userName", userData.name);
+      localStorage.setItem("userId", userId);
+      localStorage.setItem("isLoggedIn", "true");
 
-    const newUser = {
-      ...user,
-      uid: userId,
-      name: userData.name,
-      email: userData.email,
-    };
-    setUser(newUser);
-    setIsLoggedIn(true);
-    localStorage.setItem("userEmail", userData.email);
-    localStorage.setItem("userName", userData.name);
-    localStorage.setItem("userId", userId);
-    localStorage.setItem("isLoggedIn", "true");
-
-    // Sync to Supabase in background
-    fetchProfile(userId, userData.email, userData.name);
+      // 2. Fetch/Create profile in Supabase
+      await fetchProfile(userId, userData.email, userData.name);
+    } catch (err) {
+      console.error("Login Error:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogout = () => {
@@ -4091,6 +4141,505 @@ function ExploreScreen({
         </div>
       </div>
     </div>
+  );
+}
+
+function NotificationScreen({
+  t,
+  lang,
+  notifications,
+  setNotifications,
+  setScreen,
+}) {
+  const markAllAsRead = () => {
+    setNotifications(notifications.map((n) => ({ ...n, read: true })));
+  };
+
+  const deleteNotification = (id) => {
+    setNotifications(notifications.filter((n) => n.id !== id));
+  };
+
+  return (
+    <div
+      className="notification-screen fade-in"
+      style={{ height: "100%", overflowY: "auto", paddingBottom: "100px" }}
+    >
+      <header
+        className="header"
+        style={{
+          marginBottom: "25px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+          <button onClick={() => setScreen("home")} className="nav-icon-btn">
+            <ChevronLeft
+              size={24}
+              style={{ transform: lang === "ar" ? "rotate(180deg)" : "none" }}
+            />
+          </button>
+          <h1 style={{ fontSize: "1.8rem", fontWeight: 800, margin: 0 }}>
+            {t.notifications}
+          </h1>
+        </div>
+        {notifications.length > 0 && (
+          <button
+            onClick={markAllAsRead}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#629FAD",
+              fontWeight: 700,
+              cursor: "pointer",
+              fontSize: "0.9rem",
+            }}
+          >
+            {lang === "en" ? "Mark all read" : "تحديد الكل كمقروء"}
+          </button>
+        )}
+      </header>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        {notifications.length === 0 ? (
+          <div
+            style={{ textAlign: "center", padding: "80px 20px", opacity: 0.5 }}
+          >
+            <Bell size={60} style={{ marginBottom: "20px", opacity: 0.2 }} />
+            <p>
+              {lang === "en" ? "No new notifications" : "لا توجد تنبيهات جديدة"}
+            </p>
+          </div>
+        ) : (
+          notifications.map((n) => (
+            <motion.div
+              layout
+              key={n.id}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className={`card ${n.read ? "" : "unread"}`}
+              style={{
+                padding: "20px",
+                borderRadius: "24px",
+                backgroundColor: n.read ? "var(--card-bg, white)" : "#F0F7F8",
+                border: n.read
+                  ? "1px solid rgba(0,0,0,0.02)"
+                  : "1px solid rgba(98, 159, 173, 0.2)",
+                position: "relative",
+                display: "flex",
+                gap: "15px",
+                alignItems: "flex-start",
+              }}
+            >
+              <div
+                style={{
+                  width: "45px",
+                  height: "45px",
+                  borderRadius: "15px",
+                  backgroundColor:
+                    n.type === "system"
+                      ? "#E3F2FD"
+                      : n.type === "social"
+                        ? "#F3E5FF"
+                        : "#E8F5E9",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                {n.type === "system" ? (
+                  <Settings size={20} color="#1565C0" />
+                ) : n.type === "social" ? (
+                  <Users size={20} color="#7B1FA2" />
+                ) : (
+                  <Award size={20} color="#2E7D32" />
+                )}
+              </div>
+              <div style={{ flex: 1 }}>
+                <p
+                  style={{
+                    margin: "0 0 4px 0",
+                    fontSize: "0.95rem",
+                    fontWeight: n.read ? 500 : 700,
+                    color: "var(--text-main)",
+                  }}
+                >
+                  {n.text}
+                </p>
+                <span
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "var(--text-dim)",
+                    fontWeight: 600,
+                  }}
+                >
+                  {n.time}
+                </span>
+              </div>
+              <button
+                onClick={() => deleteNotification(n.id)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-dim)",
+                  opacity: 0.3,
+                  cursor: "pointer",
+                }}
+              >
+                <X size={18} />
+              </button>
+              {!n.read && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "15px",
+                    right: lang === "ar" ? "auto" : "15px",
+                    left: lang === "ar" ? "15px" : "auto",
+                    width: "8px",
+                    height: "8px",
+                    background: "#629FAD",
+                    borderRadius: "50%",
+                  }}
+                />
+              )}
+            </motion.div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsScreen({
+  t,
+  lang,
+  journals,
+  todoLists,
+  meditationHistory,
+  groupStats,
+  setScreen,
+}) {
+  const totalJournals = Object.keys(journals).length;
+  const meditationMinutes = meditationHistory.reduce(
+    (acc, curr) => acc + (curr.duration || 0),
+    0,
+  );
+  const totalTasks = Object.values(todoLists).flat().length + groupStats.total;
+  const completedTasks =
+    Object.values(todoLists)
+      .flat()
+      .filter((t) => t.completed).length + groupStats.completed;
+  const tasksSuccesRate =
+    totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  return (
+    <div
+      className="analytics-screen fade-in"
+      style={{ height: "100%", overflowY: "auto", paddingBottom: "100px" }}
+    >
+      <header
+        className="header"
+        style={{
+          marginBottom: "25px",
+          display: "flex",
+          alignItems: "center",
+          gap: "15px",
+        }}
+      >
+        <button onClick={() => setScreen("home")} className="nav-icon-btn">
+          <ChevronLeft
+            size={24}
+            style={{ transform: lang === "ar" ? "rotate(180deg)" : "none" }}
+          />
+        </button>
+        <h1 style={{ fontSize: "1.8rem", fontWeight: 800, margin: 0 }}>
+          {t.analytics || "Analytics"}
+        </h1>
+      </header>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "15px",
+          marginBottom: "25px",
+        }}
+      >
+        <div
+          className="card"
+          style={{
+            padding: "20px",
+            textAlign: "center",
+            background: "linear-gradient(135deg, #1D546D 0%, #000000 100%)",
+            color: "white",
+          }}
+        >
+          <Activity size={24} style={{ marginBottom: "10px", opacity: 0.8 }} />
+          <div style={{ fontSize: "1.8rem", fontWeight: 800 }}>
+            {meditationMinutes}
+          </div>
+          <p style={{ fontSize: "0.75rem", opacity: 0.7, margin: 0 }}>
+            {lang === "en" ? "Focus Minutes" : "دقائق التركيز"}
+          </p>
+        </div>
+        <div
+          className="card"
+          style={{
+            padding: "20px",
+            textAlign: "center",
+            background: "linear-gradient(135deg, #FF6B6B 0%, #D35400 100%)",
+            color: "white",
+          }}
+        >
+          <TrendingUp
+            size={24}
+            style={{ marginBottom: "10px", opacity: 0.8 }}
+          />
+          <div style={{ fontSize: "1.8rem", fontWeight: 800 }}>
+            {tasksSuccesRate}%
+          </div>
+          <p style={{ fontSize: "0.75rem", opacity: 0.7, margin: 0 }}>
+            {t.tasksRatio || "Success Rate"}
+          </p>
+        </div>
+      </div>
+
+      <div className="section-header">
+        <h2>{lang === "en" ? "Activities" : "الأنشطة"}</h2>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        <div
+          className="card"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "20px",
+            padding: "20px",
+          }}
+        >
+          <div
+            style={{
+              width: "50px",
+              height: "50px",
+              borderRadius: "15px",
+              background: "#E3F2FD",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <BookOpen size={24} color="#1565C0" />
+          </div>
+          <div>
+            <div style={{ fontSize: "1.1rem", fontWeight: 800 }}>
+              {totalJournals}
+            </div>
+            <p
+              style={{
+                fontSize: "0.85rem",
+                color: "var(--text-dim)",
+                margin: 0,
+              }}
+            >
+              {t.journal}s Written
+            </p>
+          </div>
+        </div>
+        <div
+          className="card"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "20px",
+            padding: "20px",
+          }}
+        >
+          <div
+            style={{
+              width: "50px",
+              height: "50px",
+              borderRadius: "15px",
+              background: "#E8F5E9",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <CheckCircle2 size={24} color="#2E7D32" />
+          </div>
+          <div>
+            <div style={{ fontSize: "1.1rem", fontWeight: 800 }}>
+              {completedTasks}
+            </div>
+            <p
+              style={{
+                fontSize: "0.85rem",
+                color: "var(--text-dim)",
+                margin: 0,
+              }}
+            >
+              {t.completed} Tasks
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniPlayer({ item, t, lang, onClose, onComplete }) {
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    let interval;
+    if (isPlaying && progress < 100) {
+      interval = setInterval(() => {
+        setProgress((prev) => {
+          if (prev >= 100) {
+            clearInterval(interval);
+            onComplete();
+            return 100;
+          }
+          return prev + 0.5;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isPlaying, progress, onComplete]);
+
+  return (
+    <motion.div
+      initial={{ y: 100, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: 100, opacity: 0 }}
+      style={{
+        position: "fixed",
+        bottom: "100px",
+        left: "20px",
+        right: "20px",
+        background: "rgba(255, 255, 255, 0.8)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        borderRadius: "24px",
+        padding: "16px",
+        display: "flex",
+        alignItems: "center",
+        gap: "15px",
+        boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
+        zIndex: 100,
+        border: "1px solid rgba(255,255,255,0.4)",
+      }}
+    >
+      <div
+        style={{
+          width: "50px",
+          height: "50px",
+          borderRadius: "15px",
+          background: item.color || "#629FAD",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          fontSize: "1.5rem",
+        }}
+      >
+        {item.icon}
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <h4
+          style={{
+            margin: 0,
+            fontSize: "0.95rem",
+            fontWeight: 700,
+            color: "var(--text-main)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {item.title[lang]}
+        </h4>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            marginTop: "4px",
+          }}
+        >
+          <div
+            style={{
+              flex: 1,
+              height: "4px",
+              background: "rgba(0,0,0,0.05)",
+              borderRadius: "2px",
+              overflow: "hidden",
+            }}
+          >
+            <motion.div
+              style={{
+                height: "100%",
+                background: "#629FAD",
+                width: `${progress}%`,
+              }}
+            />
+          </div>
+          <span
+            style={{
+              fontSize: "0.7rem",
+              color: "var(--text-dim)",
+              fontWeight: 600,
+            }}
+          >
+            {Math.floor(progress)}%
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <button
+          onClick={() => setIsPlaying(!isPlaying)}
+          style={{
+            width: "40px",
+            height: "40px",
+            borderRadius: "50%",
+            border: "none",
+            background: "#629FAD",
+            color: "white",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          {isPlaying ? (
+            <span style={{ fontSize: "10px" }}>II</span>
+          ) : (
+            <Plus size={20} style={{ transform: "rotate(45deg)" }} />
+          )}
+        </button>
+        <button
+          onClick={onClose}
+          style={{
+            width: "32px",
+            height: "32px",
+            borderRadius: "50%",
+            border: "none",
+            background: "rgba(0,0,0,0.05)",
+            color: "var(--text-dim)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <X size={16} />
+        </button>
+      </div>
+    </motion.div>
   );
 }
 

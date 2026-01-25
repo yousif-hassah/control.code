@@ -29,6 +29,12 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
       );
     } catch (error) {
       console.error("Error fetching groups:", error);
+      console.error("Error details:", {
+        message: error.message,
+        code: error.code,
+        hint: error.hint,
+        details: error.details,
+      });
     }
   };
 
@@ -53,7 +59,12 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
       setShowCreateModal(false);
       fetchUserGroups();
     } catch (error) {
-      alert("Failed to create group");
+      console.error("Error creating group:", error);
+      const errorMsg =
+        lang === "en"
+          ? "Failed to create group. Check console for details."
+          : "فشل إنشاء المجموعة. تحقق من Console للتفاصيل.";
+      alert(errorMsg);
     } finally {
       setLoading(false);
     }
