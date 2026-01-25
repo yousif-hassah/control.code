@@ -50,10 +50,27 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "group_messages" },
-        (p) => {
-          setMessages((prev) => [...prev, p.new]);
+        async (p) => {
+          // Fetch the profile for the new message to get the name
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("name, image_url")
+            .eq("id", p.new.user_id)
+            .single();
+
+          const enrichedMessage = {
+            ...p.new,
+            profiles: profile,
+          };
+
+          setMessages((prev) => [...prev, enrichedMessage]);
           scrollToBottom();
         },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "group_members" },
+        () => fetchMembers(),
       )
       .on(
         "postgres_changes",
@@ -86,7 +103,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   const fetchMessages = async () => {
     const { data } = await supabase
       .from("group_messages")
-      .select("*")
+      .select("*, profiles(name, image_url)")
       .eq("group_id", group.id)
       .order("created_at", { ascending: true });
     setMessages(data || []);
@@ -105,7 +122,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   const fetchMembers = async () => {
     const { data } = await supabase
       .from("group_members")
-      .select(`user_id, role, profiles(name)`)
+      .select(`user_id, role, profiles(name, image_url)`)
       .eq("group_id", group.id);
     setMembers(data || []);
   };
@@ -714,57 +731,105 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
           <div
             style={{ display: "flex", flexDirection: "column", gap: "10px" }}
           >
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                style={{
-                  alignSelf: m.user_id === user.uid ? "flex-end" : "flex-start",
-                  maxWidth: "85%",
-                }}
-              >
+            {messages.map((m, idx) => {
+              const isMe = m.user_id === user.uid;
+              const senderName = m.profiles?.name || "Member";
+              const showName =
+                !isMe && (idx === 0 || messages[idx - 1].user_id !== m.user_id);
+
+              return (
                 <div
+                  key={m.id}
                   style={{
-                    padding: "10px 14px",
-                    borderRadius:
-                      m.user_id === user.uid
-                        ? "18px 18px 4px 18px"
-                        : "18px 18px 18px 4px",
-                    background: m.user_id === user.uid ? "#629FAD" : "#f1f1f1",
-                    color: m.user_id === user.uid ? "white" : "#333",
-                    fontSize: "14px",
+                    alignSelf: isMe ? "flex-end" : "flex-start",
+                    maxWidth: "85%",
+                    display: "flex",
+                    flexDirection: "column",
                   }}
                 >
-                  {m.file_url ? (
-                    <div
-                      onClick={() => window.open(m.file_url, "_blank")}
-                      style={{ cursor: "pointer" }}
+                  {showName && (
+                    <span
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: "800",
+                        color: "#629FAD",
+                        marginBottom: "4px",
+                        [lang === "ar" ? "marginRight" : "marginLeft"]: "12px",
+                      }}
                     >
-                      {m.file_url.match(/\.(jpg|jpeg|png|gif)$/i) ? (
-                        <img
-                          src={m.file_url}
-                          style={{ maxWidth: "100%", borderRadius: "8px" }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: "8px",
-                            alignItems: "center",
-                          }}
-                        >
-                          <FileText size={18} />{" "}
-                          <span style={{ fontSize: "12px" }}>
-                            {m.file_name}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p style={{ margin: 0 }}>{m.message}</p>
+                      {senderName}
+                    </span>
                   )}
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: isMe
+                        ? "18px 18px 4px 18px"
+                        : "18px 18px 18px 4px",
+                      background: isMe ? "#629FAD" : "#fff",
+                      color: isMe ? "white" : "#333",
+                      fontSize: "14px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
+                      border: isMe ? "none" : "1px solid #f0f0f0",
+                    }}
+                  >
+                    {m.file_url ? (
+                      <div
+                        onClick={() => window.open(m.file_url, "_blank")}
+                        style={{ cursor: "pointer" }}
+                      >
+                        {m.file_url.match(/\.(jpg|jpeg|png|gif)$/i) ? (
+                          <img
+                            src={m.file_url}
+                            style={{
+                              maxWidth: "100%",
+                              borderRadius: "8px",
+                              display: "block",
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "8px",
+                              alignItems: "center",
+                            }}
+                          >
+                            <FileText size={18} />
+                            <span
+                              style={{
+                                fontSize: "12px",
+                                textDecoration: "underline",
+                              }}
+                            >
+                              {m.file_name}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p style={{ margin: 0, lineHeight: "1.5" }}>
+                        {m.message}
+                      </p>
+                    )}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "9px",
+                      color: "#bbb",
+                      marginTop: "4px",
+                      alignSelf: isMe ? "flex-end" : "flex-start",
+                      fontWeight: "600",
+                    }}
+                  >
+                    {new Date(m.created_at).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             <div ref={chatEndRef} />
           </div>
         )}

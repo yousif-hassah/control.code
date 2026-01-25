@@ -90,7 +90,12 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
       setShowJoinModal(false);
       fetchUserGroups();
     } catch (error) {
-      alert("Already a member or error");
+      console.error("Join Group Error:", error);
+      alert(
+        lang === "en"
+          ? `Error joining group: ${error.message || "Unknown error"}`
+          : `خطأ أثناء الانضمام: ${error.message || "خطأ غير معروف"}`,
+      );
     } finally {
       setLoading(false);
     }

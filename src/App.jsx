@@ -419,11 +419,16 @@ export default function App() {
   const fetchProfile = async (userId, userEmail, metadataName) => {
     try {
       // 1. Get existing profile
-      const { data: existingProfile } = await supabase
+      const { data: existingProfile, error: fetchError } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", userId)
         .maybeSingle();
+
+      if (fetchError) {
+        console.error("Supabase Profile Fetch Error:", fetchError);
+        throw fetchError;
+      }
 
       // 2. Decide the name: Priority to DB, then Login form, then Email
       const finalName =
@@ -450,20 +455,29 @@ export default function App() {
       setUser(userData);
       setIsLoggedIn(true);
 
-      // 3. Always sync/update the profile in DB to ensure it's current
-      await supabase.from("profiles").upsert(
-        {
-          id: userId,
-          email: userEmail,
-          name: finalName,
-          image_url: existingProfile?.image_url || userData.image,
-        },
-        { onConflict: "id" },
-      );
+      // 3. Always sync/update the profile in DB to ensure it's current (if it doesn't exist)
+      if (!existingProfile) {
+        await supabase.from("profiles").upsert(
+          {
+            id: userId,
+            email: userEmail,
+            name: finalName,
+            image_url: userData.image,
+          },
+          { onConflict: "id" },
+        );
+      }
     } catch (err) {
       console.error("Auth Sync Error:", err);
       // Fallback if DB fetch fails but Auth is successful
-      setUser({ uid: userId, email: userEmail, name: metadataName || "User" });
+      setUser({
+        uid: userId,
+        email: userEmail,
+        name: metadataName || "User",
+        image:
+          "https://api.dicebear.com/7.x/initials/svg?seed=" +
+          (metadataName || userEmail),
+      });
       setIsLoggedIn(true);
     } finally {
       setLoading(false);
@@ -694,21 +708,41 @@ export default function App() {
 
   const updateProfile = async (newData) => {
     if (!user?.uid) return;
-    const updatedUser = { ...user, ...newData };
-    setUser(updatedUser);
-    localStorage.setItem("user", JSON.stringify(updatedUser));
+    try {
+      const updatedUser = { ...user, ...newData };
+      setUser(updatedUser);
 
-    // Sync to Supabase
-    await supabase.from("profiles").upsert(
-      {
-        id: user.uid,
-        name: updatedUser.name,
-        image_url: updatedUser.image,
-        socials: updatedUser.socials,
-        email: user.email,
-      },
-      { onConflict: "id" },
-    );
+      try {
+        localStorage.setItem("user", JSON.stringify(updatedUser));
+      } catch (lsError) {
+        console.warn(
+          "Storage Error: Profile image might be too large for localStorage.",
+        );
+      }
+
+      // Sync to Supabase
+      const { error } = await supabase.from("profiles").upsert(
+        {
+          id: user.uid,
+          name: updatedUser.name,
+          image_url: updatedUser.image,
+          socials: updatedUser.socials,
+          email: user.email,
+        },
+        { onConflict: "id" },
+      );
+
+      if (error) {
+        console.error("Supabase Profile Sync Error:", error);
+        alert(
+          lang === "en"
+            ? "Failed to save profile to cloud."
+            : "فشل حفظ الملف الشخصي سحابياً.",
+        );
+      }
+    } catch (err) {
+      console.error("Update Profile Error:", err);
+    }
   };
 
   const addUpdateToGroup = (groupId, text, image = null) => {
@@ -4674,9 +4708,39 @@ function ProfileScreen({
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      // Create a canvas to resize the image
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, image: reader.result });
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 400;
+          const MAX_HEIGHT = 400;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Get the compressed data URL
+          const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.7);
+          setFormData({ ...formData, image: compressedDataUrl });
+        };
+        img.src = event.target.result;
       };
       reader.readAsDataURL(file);
     }
