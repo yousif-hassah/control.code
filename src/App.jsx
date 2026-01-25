@@ -474,7 +474,6 @@ export default function App() {
       if (upsertError) console.error("Profile Sync Error:", upsertError);
     } catch (err) {
       console.error("Critical Auth Sync Error:", err);
-      setLoading(false);
     } finally {
       setLoading(false);
     }
@@ -776,12 +775,17 @@ export default function App() {
         console.error("Supabase Profile Sync Error:", error);
         alert(
           lang === "en"
-            ? "Cloud Sync Failed: Connection issue or storage full."
-            : "فشل المزامنة: مشكلة في الاتصال أو مساحة التخزين.",
+            ? `Cloud Sync Failed: ${error.message}`
+            : `فشل المزامنة السحابية: ${error.message}`,
         );
       }
     } catch (err) {
       console.error("Update Profile Error:", err);
+      alert(
+        lang === "en"
+          ? "Unexpected Error during sync"
+          : "خطأ غير متوقع أثناء المزامنة",
+      );
     }
   };
 
