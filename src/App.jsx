@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useUser, SignedIn, SignedOut, SignIn, useClerk } from "@clerk/clerk-react";
 import {
   Home,
   Compass,
@@ -402,6 +403,8 @@ const generateCalendarDays = () => {
 const CALENDAR_DAYS = generateCalendarDays();
 
 export default function App() {
+  const { isLoaded: clerkIsLoaded, isSignedIn: clerkIsSignedIn, user: clerkUser } = useUser();
+  const { signOut } = useClerk();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -418,21 +421,43 @@ export default function App() {
 
   const fetchProfile = async (userId, userEmail, metadataName) => {
     try {
-      // 1. Find profile by email first (Our primary unique key)
-      let { data: existingProfile, error: fetchError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("email", userEmail)
-        .maybeSingle();
+      console.log("🔄 Fetching profile for:", userEmail);
 
-      if (fetchError) {
-        console.error("Supabase Profile Fetch Error:", fetchError);
+      // Check if Supabase is properly configured
+      if (!supabase) {
+        console.error("❌ Supabase client not initialized");
+        throw new Error("Supabase client not initialized");
       }
 
-      // 2. Resolve Data: Keep DB name if it exists (don't allow change via login)
+      // 1. Try to fetch profile from Supabase
+      let existingProfile = null;
+      let fetchError = null;
+
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("email", userEmail)
+          .maybeSingle();
+
+        existingProfile = data;
+        fetchError = error;
+
+        if (fetchError) {
+          console.error("⚠️ Supabase Profile Fetch Error:", fetchError);
+          // Don't throw - we'll use local fallback
+        } else {
+          console.log("✅ Profile fetched from Supabase:", existingProfile);
+        }
+      } catch (networkError) {
+        console.error("⚠️ Network error fetching profile:", networkError);
+        // Continue with local fallback
+      }
+
+      // 2. Determine final user data (cloud or local fallback)
+      const finalId = existingProfile?.id || userId;
       const finalName =
         existingProfile?.name || metadataName || userEmail.split("@")[0];
-      const finalId = existingProfile?.id || userId;
       const finalImage =
         existingProfile?.image_url ||
         "https://api.dicebear.com/7.x/initials/svg?seed=" + finalName;
@@ -453,48 +478,114 @@ export default function App() {
         achievements: existingProfile?.achievements || [],
       };
 
+      // 3. Set user state FIRST (so app works even if cloud sync fails)
       setUser(userData);
       setIsLoggedIn(true);
+      console.log("✅ User state set:", userData);
 
-      // Store in local storage to recover faster on refresh
-      localStorage.setItem("userId", finalId);
-      localStorage.setItem("userEmail", userEmail);
-      localStorage.setItem("userName", finalName);
+      // 4. Store in local storage for offline access
+      try {
+        localStorage.setItem("userId", finalId);
+        localStorage.setItem("userEmail", userEmail);
+        localStorage.setItem("userName", finalName);
+        localStorage.setItem("isLoggedIn", "true");
+        console.log("✅ User data saved to localStorage");
+      } catch (storageError) {
+        console.warn("⚠️ localStorage error:", storageError);
+      }
 
-      // 3. Upsert to cloud to ensure record exists
-      const { error: upsertError } = await supabase.from("profiles").upsert(
-        {
-          id: finalId,
-          email: userEmail,
-          name: finalName,
-          image_url: finalImage,
-        },
-        { onConflict: "email" },
-      );
+      // 5. Try to sync to cloud (non-blocking)
+      try {
+        const { error: upsertError } = await supabase.from("profiles").upsert(
+          {
+            id: finalId,
+            email: userEmail,
+            name: finalName,
+            image_url: finalImage,
+            level: userData.level,
+            points: userData.points,
+            streak: userData.streak,
+            socials: userData.socials,
+            achievements: userData.achievements,
+          },
+          { onConflict: "email" },
+        );
 
-      if (upsertError) {
-        console.error("Cloud Upsert Error:", upsertError);
+        if (upsertError) {
+          console.error("⚠️ Cloud Upsert Error:", upsertError);
+          // Don't show alert - app still works with local data
+        } else {
+          console.log("✅ Profile synced to cloud");
+        }
+      } catch (syncError) {
+        console.error("⚠️ Cloud sync failed:", syncError);
+        // App continues to work with local data
       }
     } catch (err) {
-      console.error("Critical Profile Fetch Error:", err);
+      console.error("❌ Critical Profile Fetch Error:", err);
+
+      // FALLBACK: Try to load from localStorage
+      const savedUserId = localStorage.getItem("userId");
+      const savedEmail = localStorage.getItem("userEmail");
+      const savedName = localStorage.getItem("userName");
+
+      if (savedUserId && savedEmail) {
+        console.log("🔄 Loading from localStorage fallback");
+        const fallbackUser = {
+          uid: savedUserId,
+          email: savedEmail,
+          name: savedName || savedEmail.split("@")[0],
+          image:
+            "https://api.dicebear.com/7.x/initials/svg?seed=" +
+            (savedName || savedEmail.split("@")[0]),
+          level: 1,
+          points: 0,
+          streak: 0,
+          socials: { instagram: "", twitter: "", facebook: "" },
+          achievements: [],
+        };
+
+        setUser(fallbackUser);
+        setIsLoggedIn(true);
+        console.log("✅ Loaded from localStorage fallback");
+      } else {
+        // Only show error if we have no fallback data
+        alert(
+          lang === "en"
+            ? "Error loading profile. Please try logging in again."
+            : "خطأ في تحميل الملف الشخصي. الرجاء تسجيل الدخول مرة أخرى.",
+        );
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    const savedEmail = localStorage.getItem("userEmail");
-    const savedName = localStorage.getItem("userName");
-    const savedUserId = localStorage.getItem("userId");
-    const savedLoggedIn = localStorage.getItem("isLoggedIn") === "true";
-
-    if (savedLoggedIn && savedEmail && savedUserId) {
+    if (clerkIsLoaded && clerkIsSignedIn && clerkUser) {
+      const primaryEmail = clerkUser.primaryEmailAddress?.emailAddress || "";
+      const name = clerkUser.fullName || clerkUser.username || primaryEmail.split("@")[0];
+      
+      localStorage.setItem("userEmail", primaryEmail);
+      localStorage.setItem("userName", name);
+      localStorage.setItem("userId", clerkUser.id);
+      localStorage.setItem("isLoggedIn", "true");
+      
       setIsLoggedIn(true);
-      fetchProfile(savedUserId, savedEmail, savedName);
-    } else {
+      fetchProfile(clerkUser.id, primaryEmail, name);
+    } else if (clerkIsLoaded && !clerkIsSignedIn) {
+      setIsLoggedIn(false);
+      setSession(null);
+      setUser(null);
       setLoading(false);
+      localStorage.removeItem("isLoggedIn");
+      localStorage.removeItem("userEmail");
+      localStorage.removeItem("userName");
+      localStorage.removeItem("userId");
+    } else if (!clerkIsLoaded) {
+      setLoading(true);
     }
-  }, []);
+  }, [clerkIsLoaded, clerkIsSignedIn, clerkUser]);
 
   const [todoLists, setTodoLists] = useState({});
   useEffect(() => {
@@ -1165,7 +1256,8 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOut();
     setIsLoggedIn(false);
     setSession(null);
     setUser(null);
@@ -1196,13 +1288,51 @@ export default function App() {
       <div
         className={`iphone-frame ${lang === "ar" ? "rtl" : ""} theme-${theme}`}
       >
-        <AuthScreen
-          t={t}
-          lang={lang}
-          onLogin={handleLogin}
-          theme={theme}
-          toggleTheme={toggleTheme}
-        />
+        <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", backgroundColor: "var(--bg-main)" }}>
+          <header style={{ padding: "40px 20px 20px", display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+            <button
+              onClick={toggleTheme}
+              style={{
+                background: "var(--card-bg, white)",
+                border: "none",
+                width: "40px",
+                height: "40px",
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--text-main)",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+                cursor: "pointer",
+              }}
+            >
+              {theme === "light" ? <Moon size={20} /> : <Sun size={20} />}
+            </button>
+            <button
+              onClick={toggleLang}
+              style={{
+                background: "var(--card-bg, white)",
+                border: "none",
+                width: "40px",
+                height: "40px",
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--text-main)",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+                cursor: "pointer",
+              }}
+            >
+              <span style={{ fontWeight: "bold", fontSize: "0.9rem" }}>
+                {lang === "en" ? "ع" : "EN"}
+              </span>
+            </button>
+          </header>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", paddingBottom: "40px" }}>
+            <SignIn routing="hash" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -1294,11 +1424,24 @@ function AuthScreen({ t, lang, onLogin, theme, toggleTheme }) {
     setLoading(true);
     setError("");
 
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    setGeneratedOtp(otp);
-
     try {
+      // IMPORTANT: Check if email already exists
+      const { data: existingUser } = await supabase
+        .from("profiles")
+        .select("email, name")
+        .eq("email", formData.email)
+        .maybeSingle();
+
+      // If email exists, inform user they're logging into existing account
+      if (existingUser) {
+        console.log("Existing user found:", existingUser.name);
+        // Continue with OTP - they're logging into their existing account
+      }
+
+      // Generate 6-digit OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      setGeneratedOtp(otp);
+
       // Use localhost:3001 for development, /api/send-otp for production
       const apiUrl = import.meta.env.DEV
         ? "http://localhost:3001/api/send-otp"
@@ -1318,6 +1461,14 @@ function AuthScreen({ t, lang, onLogin, theme, toggleTheme }) {
 
       if (response.ok && data.success) {
         setStep(2);
+        // Show message if logging into existing account
+        if (existingUser) {
+          setError(
+            lang === "en"
+              ? `Welcome back, ${existingUser.name}! Logging into your existing account.`
+              : `مرحباً بعودتك، ${existingUser.name}! تسجيل الدخول إلى حسابك الحالي.`,
+          );
+        }
       } else {
         throw new Error(data.error || "Failed to send code");
       }

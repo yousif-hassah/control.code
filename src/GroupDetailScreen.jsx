@@ -27,6 +27,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   const [files, setFiles] = useState([]);
   const [members, setMembers] = useState([]);
   const [activities, setActivities] = useState([]);
+  const [memberStats, setMemberStats] = useState([]); // NEW: Track member performance
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newMessage, setNewMessage] = useState("");
   const [selectedMember, setSelectedMember] = useState("");
@@ -89,6 +90,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     fetchFiles();
     fetchMembers();
     fetchActivities();
+    fetchMemberStats(); // NEW: Fetch member statistics
   };
 
   const fetchTasks = async () => {
@@ -135,6 +137,69 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
       .order("created_at", { ascending: false })
       .limit(20);
     setActivities(data || []);
+  };
+
+  const fetchMemberStats = async () => {
+    try {
+      // Get all members with their profiles
+      const { data: membersData } = await supabase
+        .from("group_members")
+        .select(`user_id, role, profiles(name, image_url)`)
+        .eq("group_id", group.id);
+
+      if (!membersData) return;
+
+      // Calculate stats for each member
+      const statsPromises = membersData.map(async (member) => {
+        // Count tasks completed by this member
+        const { data: completedTasks } = await supabase
+          .from("group_tasks")
+          .select("id")
+          .eq("group_id", group.id)
+          .eq("completed_by", member.user_id)
+          .eq("status", "completed");
+
+        // Count tasks assigned to this member
+        const { data: assignedTasks } = await supabase
+          .from("group_tasks")
+          .select("id")
+          .eq("group_id", group.id)
+          .eq("assigned_to", member.user_id);
+
+        // Count total actions by this member
+        const { data: memberActivities } = await supabase
+          .from("group_activities")
+          .select("id, created_at")
+          .eq("group_id", group.id)
+          .eq("user_id", member.user_id)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        const lastActive = memberActivities?.[0]?.created_at || null;
+        const isActive = lastActive
+          ? new Date() - new Date(lastActive) < 24 * 60 * 60 * 1000 // Active in last 24h
+          : false;
+
+        return {
+          user_id: member.user_id,
+          name: member.profiles?.name || "Unknown",
+          image_url: member.profiles?.image_url || "",
+          role: member.role,
+          tasks_completed: completedTasks?.length || 0,
+          tasks_assigned: assignedTasks?.length || 0,
+          total_actions: memberActivities?.length || 0,
+          last_active: lastActive,
+          is_active: isActive,
+        };
+      });
+
+      const stats = await Promise.all(statsPromises);
+      // Sort by tasks completed (descending)
+      stats.sort((a, b) => b.tasks_completed - a.tasks_completed);
+      setMemberStats(stats);
+    } catch (error) {
+      console.error("Error fetching member stats:", error);
+    }
   };
 
   const scrollToBottom = () => {
@@ -194,10 +259,6 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   };
 
   const toggleTaskStatus = async (task) => {
-    // Updated logic per user's audio:
-    // "The task that I don't give to any person, anyone can do it."
-    // "And when it's done, it should show me that this person completed it."
-
     const isAssignee = task.assigned_to === user.uid;
     const isCreator = task.created_by === user.uid;
     const isUnassigned = !task.assigned_to;
@@ -212,6 +273,31 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     }
 
     const newStatus = task.status === "completed" ? "pending" : "completed";
+
+    // OPTIMISTIC UPDATE: Update UI immediately for better UX
+    setTasks((prevTasks) =>
+      prevTasks.map((t) =>
+        t.id === task.id
+          ? {
+              ...t,
+              status: newStatus,
+              completed_at:
+                newStatus === "completed" ? new Date().toISOString() : null,
+              completed_by: newStatus === "completed" ? user.uid : null,
+            }
+          : t,
+      ),
+    );
+
+    // Play sound immediately
+    if (newStatus === "completed") {
+      const audio = new Audio(
+        "https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3",
+      );
+      audio.volume = 0.5;
+      audio.play().catch(() => {});
+    }
+
     try {
       const { error } = await supabase
         .from("group_tasks")
@@ -222,23 +308,29 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
           completed_by: newStatus === "completed" ? user.uid : null,
         })
         .eq("id", task.id);
+
       if (error) throw error;
-      await logActivity(
+
+      // Log activity in background (don't wait for it)
+      logActivity(
         newStatus === "completed" ? "task_completed" : "task_reopened",
         task.title,
       );
-
-      if (newStatus === "completed") {
-        const audio = new Audio(
-          "https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3",
-        );
-        audio.volume = 0.5;
-        audio.play().catch(() => {});
-      }
-
-      fetchTasks();
     } catch (e) {
       console.error("Update Task Error:", e);
+      // REVERT optimistic update on error
+      setTasks((prevTasks) =>
+        prevTasks.map((t) =>
+          t.id === task.id
+            ? {
+                ...t,
+                status: task.status,
+                completed_at: task.completed_at,
+                completed_by: task.completed_by,
+              }
+            : t,
+        ),
+      );
       alert(
         lang === "ar"
           ? "فشل تحديث المهمة. تأكد من إعدادات قاعدة البيانات."
@@ -249,14 +341,47 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
 
   const sendMessage = async () => {
     if (!newMessage.trim()) return;
-    const { error } = await supabase
-      .from("group_messages")
-      .insert([
-        { group_id: group.id, user_id: user.uid, message: newMessage.trim() },
-      ]);
-    if (!error) {
-      setNewMessage("");
-      fetchMessages();
+
+    const messageText = newMessage.trim();
+    setNewMessage(""); // Clear input immediately for better UX
+
+    try {
+      const { data, error } = await supabase
+        .from("group_messages")
+        .insert([
+          {
+            group_id: group.id,
+            user_id: user.uid,
+            message: messageText,
+          },
+        ])
+        .select();
+
+      if (error) {
+        console.error("Message Send Error:", error);
+        // Restore message on error
+        setNewMessage(messageText);
+        alert(
+          lang === "ar"
+            ? "فشل إرسال الرسالة. حاول مرة أخرى."
+            : "Failed to send message. Please try again.",
+        );
+        return;
+      }
+
+      // Log activity
+      await logActivity("message_sent", messageText.substring(0, 50));
+
+      // Scroll to bottom
+      scrollToBottom();
+    } catch (e) {
+      console.error("Unexpected message error:", e);
+      setNewMessage(messageText); // Restore message
+      alert(
+        lang === "ar"
+          ? "خطأ غير متوقع. تحقق من الاتصال بالإنترنت."
+          : "Unexpected error. Check your internet connection.",
+      );
     }
   };
 
@@ -911,32 +1036,291 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
               position: "relative",
             }}
           >
-            {/* Timeline Vertical Line */}
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                bottom: 0,
-                [lang === "ar" ? "right" : "left"]: "19px",
-                width: "2px",
-                background: "rgba(98, 159, 173, 0.1)",
-                borderRadius: "10px",
-              }}
-            />
-
-            {activities.length === 0 && (
+            {/* LEADERBOARD SECTION */}
+            {memberStats.length > 0 && (
               <div
-                style={{ textAlign: "center", padding: "40px", color: "#aaa" }}
+                style={{
+                  background: "white",
+                  borderRadius: "24px",
+                  padding: "20px",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+                  marginBottom: "12px",
+                }}
               >
-                <Activity
-                  size={40}
-                  style={{ opacity: 0.2, marginBottom: "12px" }}
-                />
-                <p style={{ fontSize: "14px" }}>
-                  {lang === "ar" ? "لا يوجد نشاط بعد" : "No activity yet"}
-                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: "16px",
+                      fontWeight: "800",
+                      color: "#333",
+                    }}
+                  >
+                    {lang === "ar" ? "🏆 لوحة المتصدرين" : "🏆 Leaderboard"}
+                  </h3>
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      color: "#629FAD",
+                      fontWeight: "700",
+                    }}
+                  >
+                    {lang === "ar"
+                      ? `${memberStats.length} أعضاء`
+                      : `${memberStats.length} members`}
+                  </span>
+                </div>
+
+                {memberStats.map((stat, index) => {
+                  const isTopPerformer =
+                    index === 0 && stat.tasks_completed > 0;
+                  const isMe = stat.user_id === user.uid;
+
+                  return (
+                    <motion.div
+                      key={stat.user_id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                        padding: "12px",
+                        background: isMe
+                          ? "rgba(98, 159, 173, 0.08)"
+                          : isTopPerformer
+                            ? "rgba(255, 215, 0, 0.1)"
+                            : "#f9f9f9",
+                        borderRadius: "16px",
+                        marginBottom: "8px",
+                        border: isMe
+                          ? "2px solid #629FAD"
+                          : isTopPerformer
+                            ? "2px solid #FFD700"
+                            : "1px solid #f0f0f0",
+                        position: "relative",
+                      }}
+                    >
+                      {/* Rank Badge */}
+                      <div
+                        style={{
+                          width: "32px",
+                          height: "32px",
+                          borderRadius: "50%",
+                          background:
+                            index === 0
+                              ? "linear-gradient(135deg, #FFD700, #FFA500)"
+                              : index === 1
+                                ? "linear-gradient(135deg, #C0C0C0, #A8A8A8)"
+                                : index === 2
+                                  ? "linear-gradient(135deg, #CD7F32, #B87333)"
+                                  : "#e0e0e0",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontWeight: "900",
+                          fontSize: "12px",
+                          color: index < 3 ? "white" : "#666",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {index + 1}
+                      </div>
+
+                      {/* Profile Image */}
+                      <div
+                        style={{
+                          width: "40px",
+                          height: "40px",
+                          borderRadius: "50%",
+                          background: stat.image_url
+                            ? `url(${stat.image_url})`
+                            : "#629FAD",
+                          backgroundSize: "cover",
+                          backgroundPosition: "center",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "white",
+                          fontWeight: "700",
+                          fontSize: "14px",
+                          flexShrink: 0,
+                          position: "relative",
+                        }}
+                      >
+                        {!stat.image_url && stat.name.charAt(0).toUpperCase()}
+                        {/* Active Indicator */}
+                        {stat.is_active && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              bottom: 0,
+                              right: 0,
+                              width: "12px",
+                              height: "12px",
+                              borderRadius: "50%",
+                              background: "#4CAF50",
+                              border: "2px solid white",
+                            }}
+                          />
+                        )}
+                      </div>
+
+                      {/* Member Info */}
+                      <div style={{ flex: 1 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: "14px",
+                              fontWeight: "700",
+                              color: "#333",
+                            }}
+                          >
+                            {stat.name}
+                            {isMe && ` (${lang === "ar" ? "أنا" : "Me"})`}
+                          </span>
+                          {stat.role === "admin" && (
+                            <span
+                              style={{
+                                fontSize: "9px",
+                                padding: "2px 6px",
+                                background: "#E8F5E9",
+                                color: "#2E7D32",
+                                borderRadius: "6px",
+                                fontWeight: "700",
+                              }}
+                            >
+                              {lang === "ar" ? "مشرف" : "Admin"}
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "11px",
+                            color: "#888",
+                            marginTop: "2px",
+                          }}
+                        >
+                          {lang === "ar"
+                            ? `${stat.tasks_completed} مهام مكتملة`
+                            : `${stat.tasks_completed} tasks completed`}
+                          {stat.last_active && (
+                            <span style={{ marginLeft: "8px", color: "#bbb" }}>
+                              •{" "}
+                              {stat.is_active
+                                ? lang === "ar"
+                                  ? "نشط"
+                                  : "Active"
+                                : lang === "ar"
+                                  ? "غير نشط"
+                                  : "Inactive"}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Stats Badge */}
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          padding: "6px 10px",
+                          background: "white",
+                          borderRadius: "12px",
+                          border: "1px solid #f0f0f0",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "16px",
+                            fontWeight: "900",
+                            color: "#629FAD",
+                          }}
+                        >
+                          {stat.tasks_completed}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "9px",
+                            color: "#999",
+                            fontWeight: "600",
+                          }}
+                        >
+                          {lang === "ar" ? "مهام" : "tasks"}
+                        </span>
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </div>
             )}
+
+            {/* ACTIVITY TIMELINE SECTION */}
+            <div
+              style={{
+                background: "white",
+                borderRadius: "24px",
+                padding: "20px",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+              }}
+            >
+              <h3
+                style={{
+                  margin: "0 0 16px 0",
+                  fontSize: "16px",
+                  fontWeight: "800",
+                  color: "#333",
+                }}
+              >
+                {lang === "ar" ? "📋 سجل النشاط" : "📋 Activity Log"}
+              </h3>
+
+              {/* Timeline Vertical Line */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  [lang === "ar" ? "right" : "left"]: "19px",
+                  width: "2px",
+                  background: "rgba(98, 159, 173, 0.1)",
+                  borderRadius: "10px",
+                }}
+              />
+
+              {activities.length === 0 && (
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "40px",
+                    color: "#aaa",
+                  }}
+                >
+                  <Activity
+                    size={40}
+                    style={{ opacity: 0.2, marginBottom: "12px" }}
+                  />
+                  <p style={{ fontSize: "14px" }}>
+                    {lang === "ar" ? "لا يوجد نشاط بعد" : "No activity yet"}
+                  </p>
+                </div>
+              )}
+            </div>
 
             {activities.map((a, index) => {
               const Icon =

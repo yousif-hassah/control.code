@@ -11,6 +11,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.3",
+    "@clerk/react": "^6.1.4",
     "@supabase/supabase-js": "^2.91.1",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
