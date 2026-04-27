@@ -23,18 +23,16 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
         .from("group_members")
         .select(`role, groups (id, name, code, created_at)`)
         .eq("user_id", user.uid);
-      if (error) throw error;
-      setGroups(
-        data?.map((item) => ({ ...item.groups, role: item.role })) || [],
-      );
-    } catch (error) {
-      console.error("Error fetching groups:", error);
-      console.error("Error details:", {
-        message: error.message,
-        code: error.code,
-        hint: error.hint,
-        details: error.details,
-      });
+      console.log("fetchUserGroups data:", data, "error:", error);
+      if (error) {
+        console.error("fetchUserGroups error:", error.message, error.code);
+        return;
+      }
+      const mapped = (data || []).map((item) => ({ ...item.groups, role: item.role })).filter(Boolean);
+      console.log("mapped groups:", mapped);
+      setGroups(mapped);
+    } catch (err) {
+      console.error("fetchUserGroups unexpected error:", err);
     }
   };
 
@@ -42,34 +40,41 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
     if (!newGroupName.trim()) return;
     setLoading(true);
     try {
-      const groupCode = Math.random()
-        .toString(36)
-        .substring(2, 8)
-        .toUpperCase();
+      const groupCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+      // Step 1: Create the group
       const { data: newGroup, error: groupError } = await supabase
         .from("groups")
         .insert([{ name: newGroupName, code: groupCode, created_by: user.uid }])
         .select()
         .single();
+
       if (groupError) {
-        // Show exact Supabase error so we can diagnose
-        alert(`Supabase Error:\nCode: ${groupError.code}\nMessage: ${groupError.message}\nHint: ${groupError.hint || "none"}`);
-        console.error("Create Group Supabase Error:", groupError);
+        alert(`خطأ إنشاء المجموعة:\n${groupError.message}\nCode: ${groupError.code}`);
+        console.error("Create Group Error:", groupError);
         return;
       }
+
+      console.log("Group created:", newGroup);
+
+      // Step 2: Add creator as admin member
       const { error: memberError } = await supabase
         .from("group_members")
         .insert([{ group_id: newGroup.id, user_id: user.uid, role: "admin" }]);
+
       if (memberError) {
-        alert(`Member Insert Error:\n${memberError.message}`);
-        return;
+        console.error("Member insert error:", memberError);
+        alert(`خطأ إضافة العضو:\n${memberError.message}`);
+        // Even if member insert fails, still close modal and refresh
       }
+
       setNewGroupName("");
       setShowCreateModal(false);
-      fetchUserGroups();
+      // Wait a moment then refresh to ensure DB is updated
+      setTimeout(() => fetchUserGroups(), 500);
     } catch (error) {
-      console.error("Error creating group:", error);
-      alert(`Unexpected Error: ${error.message}`);
+      console.error("Unexpected error creating group:", error);
+      alert(`خطأ غير متوقع: ${error.message}`);
     } finally {
       setLoading(false);
     }
