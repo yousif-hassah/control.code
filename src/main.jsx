@@ -86,8 +86,14 @@ function Root() {
           logoImageUrl: '/logo.png',
           logoLinkUrl: '/',
           socialButtonsVariant: 'iconButton',
-          showOptionalFields: true,
+          showOptionalFields: false, // Ensure no extra fields
         },
+        // Force the paths to stay inside the app
+        path: '/',
+        signInUrl: '/',
+        signUpUrl: '/',
+        afterSignInUrl: '/',
+        afterSignUpUrl: '/',
         elements: {
           // Logo sizing at the top of the card
           logoImage: {
