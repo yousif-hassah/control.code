@@ -96,9 +96,9 @@ function Root() {
             objectFit: 'contain',
             marginBottom: '4px',
           },
-          // Hide "Don't have an account? Sign up" footer
-          footerAction: { display: 'none' },
-          footer: { display: 'none' },
+          // Show the footer again so new users can register
+          footerAction: { display: 'flex' },
+          footer: { display: 'flex' },
         },
       }}
     >
