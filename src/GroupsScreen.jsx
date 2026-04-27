@@ -51,20 +51,25 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
         .insert([{ name: newGroupName, code: groupCode, created_by: user.uid }])
         .select()
         .single();
-      if (groupError) throw groupError;
-      await supabase
+      if (groupError) {
+        // Show exact Supabase error so we can diagnose
+        alert(`Supabase Error:\nCode: ${groupError.code}\nMessage: ${groupError.message}\nHint: ${groupError.hint || "none"}`);
+        console.error("Create Group Supabase Error:", groupError);
+        return;
+      }
+      const { error: memberError } = await supabase
         .from("group_members")
         .insert([{ group_id: newGroup.id, user_id: user.uid, role: "admin" }]);
+      if (memberError) {
+        alert(`Member Insert Error:\n${memberError.message}`);
+        return;
+      }
       setNewGroupName("");
       setShowCreateModal(false);
       fetchUserGroups();
     } catch (error) {
       console.error("Error creating group:", error);
-      const errorMsg =
-        lang === "en"
-          ? "Failed to create group. Check console for details."
-          : "فشل إنشاء المجموعة. تحقق من Console للتفاصيل.";
-      alert(errorMsg);
+      alert(`Unexpected Error: ${error.message}`);
     } finally {
       setLoading(false);
     }
