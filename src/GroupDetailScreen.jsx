@@ -103,12 +103,27 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   };
 
   const fetchMessages = async () => {
-    const { data } = await supabase
+    // Step 1: Get messages
+    const { data: msgs } = await supabase
       .from("group_messages")
-      .select("*, profiles(name, image_url)")
+      .select("*")
       .eq("group_id", group.id)
       .order("created_at", { ascending: true });
-    setMessages(data || []);
+    if (!msgs || msgs.length === 0) { setMessages([]); return; }
+
+    // Step 2: Get profiles for senders
+    const userIds = [...new Set(msgs.map((m) => m.user_id))];
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, name, image_url")
+      .in("id", userIds);
+
+    // Step 3: Merge
+    const enriched = msgs.map((m) => ({
+      ...m,
+      profiles: profiles?.find((p) => p.id === m.user_id) || null,
+    }));
+    setMessages(enriched);
     scrollToBottom();
   };
 
@@ -122,11 +137,26 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   };
 
   const fetchMembers = async () => {
-    const { data } = await supabase
+    // Step 1: Get members
+    const { data: mems } = await supabase
       .from("group_members")
-      .select(`user_id, role, profiles(name, image_url)`)
+      .select("user_id, role")
       .eq("group_id", group.id);
-    setMembers(data || []);
+    if (!mems || mems.length === 0) { setMembers([]); return; }
+
+    // Step 2: Get profiles
+    const userIds = mems.map((m) => m.user_id);
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, name, image_url")
+      .in("id", userIds);
+
+    // Step 3: Merge
+    const enriched = mems.map((m) => ({
+      ...m,
+      profiles: profiles?.find((p) => p.id === m.user_id) || null,
+    }));
+    setMembers(enriched);
   };
 
   const fetchActivities = async () => {
@@ -366,7 +396,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
           user_id: user.uid,
           message: messageText,
         }])
-        .select("*, profiles(name, image_url)")
+        .select("*")
         .single();
 
       if (error) {
