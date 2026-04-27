@@ -65,7 +65,11 @@ function Root() {
 
   // ── Offline mode: render App WITHOUT Clerk hooks ────────────────────────
   if (failed || !ClerkProvider || !OnlineApp || !PUBLISHABLE_KEY) {
-    console.log('🔌 Offline mode — Clerk bypassed, using local auth.')
+    if (!PUBLISHABLE_KEY) {
+      console.error('❌ Clerk Error: VITE_CLERK_PUBLISHABLE_KEY is missing! Check your Vercel Environment Variables.');
+    } else {
+      console.log('🔌 Offline mode — Clerk failed to load or timed out.');
+    }
     return <App offlineMode={true} clerkIsLoaded={true} clerkIsSignedIn={false} clerkUser={null} signOut={async () => {}} />
   }
 
