@@ -171,16 +171,29 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
 
   const fetchMemberStats = async () => {
     try {
-      // Get all members with their profiles
+      // Step 1: Get members (no FK join)
       const { data: membersData } = await supabase
         .from("group_members")
-        .select(`user_id, role, profiles(name, image_url)`)
+        .select("user_id, role")
         .eq("group_id", group.id);
 
-      if (!membersData) return;
+      if (!membersData || membersData.length === 0) return;
+
+      // Step 2: Get profiles separately
+      const userIds = membersData.map((m) => m.user_id);
+      const { data: profilesData } = await supabase
+        .from("profiles")
+        .select("id, name, image_url")
+        .in("id", userIds);
+
+      // Step 3: Merge profiles into members
+      const membersWithProfiles = membersData.map((m) => ({
+        ...m,
+        profiles: profilesData?.find((p) => p.id === m.user_id) || null,
+      }));
 
       // Calculate stats for each member
-      const statsPromises = membersData.map(async (member) => {
+      const statsPromises = membersWithProfiles.map(async (member) => {
         // Count tasks completed by this member
         const { data: completedTasks } = await supabase
           .from("group_tasks")
