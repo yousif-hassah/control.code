@@ -19,22 +19,46 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
 
   const fetchUserGroups = async () => {
     try {
-      const { data, error } = await supabase
+      // Step 1: Get group_ids for this user
+      const { data: memberData, error: memberError } = await supabase
         .from("group_members")
-        .select(`role, groups (id, name, code, created_at)`)
+        .select("group_id, role")
         .eq("user_id", user.uid);
-      console.log("fetchUserGroups data:", data, "error:", error);
-      if (error) {
-        console.error("fetchUserGroups error:", error.message, error.code);
+
+      if (memberError) {
+        console.error("fetchUserGroups memberError:", memberError.message);
         return;
       }
-      const mapped = (data || []).map((item) => ({ ...item.groups, role: item.role })).filter(Boolean);
-      console.log("mapped groups:", mapped);
+
+      if (!memberData || memberData.length === 0) {
+        setGroups([]);
+        return;
+      }
+
+      // Step 2: Get group details by IDs
+      const groupIds = memberData.map((m) => m.group_id);
+      const { data: groupsData, error: groupsError } = await supabase
+        .from("groups")
+        .select("id, name, code, created_at")
+        .in("id", groupIds);
+
+      if (groupsError) {
+        console.error("fetchUserGroups groupsError:", groupsError.message);
+        return;
+      }
+
+      // Step 3: Merge role into each group
+      const mapped = (groupsData || []).map((g) => ({
+        ...g,
+        role: memberData.find((m) => m.group_id === g.id)?.role || "member",
+      }));
+
       setGroups(mapped);
     } catch (err) {
       console.error("fetchUserGroups unexpected error:", err);
     }
   };
+
 
   const createGroup = async () => {
     if (!newGroupName.trim()) return;
