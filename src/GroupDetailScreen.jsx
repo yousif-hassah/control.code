@@ -343,44 +343,61 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     if (!newMessage.trim()) return;
 
     const messageText = newMessage.trim();
-    setNewMessage(""); // Clear input immediately for better UX
+    setNewMessage(""); // Clear input immediately
+
+    // ── OPTIMISTIC UPDATE: show message instantly ─────────────────────────
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg = {
+      id: tempId,
+      group_id: group.id,
+      user_id: user.uid,
+      message: messageText,
+      created_at: new Date().toISOString(),
+      profiles: { name: user.name, image_url: user.image },
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+    scrollToBottom();
 
     try {
       const { data, error } = await supabase
         .from("group_messages")
-        .insert([
-          {
-            group_id: group.id,
-            user_id: user.uid,
-            message: messageText,
-          },
-        ])
-        .select();
+        .insert([{
+          group_id: group.id,
+          user_id: user.uid,
+          message: messageText,
+        }])
+        .select("*, profiles(name, image_url)")
+        .single();
 
       if (error) {
         console.error("Message Send Error:", error);
-        // Restore message on error
+        // Remove optimistic message & restore input on error
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
         setNewMessage(messageText);
         alert(
           lang === "ar"
             ? "فشل إرسال الرسالة. حاول مرة أخرى."
-            : "Failed to send message. Please try again.",
+            : "Failed to send message. Please try again."
         );
         return;
       }
 
-      // Log activity
-      await logActivity("message_sent", messageText.substring(0, 50));
+      // Replace optimistic message with confirmed server message
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? data : m))
+      );
 
-      // Scroll to bottom
+      // Log activity in background
+      logActivity("message_sent", messageText.substring(0, 50));
       scrollToBottom();
     } catch (e) {
       console.error("Unexpected message error:", e);
-      setNewMessage(messageText); // Restore message
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setNewMessage(messageText);
       alert(
         lang === "ar"
           ? "خطأ غير متوقع. تحقق من الاتصال بالإنترنت."
-          : "Unexpected error. Check your internet connection.",
+          : "Unexpected error. Check your internet connection."
       );
     }
   };

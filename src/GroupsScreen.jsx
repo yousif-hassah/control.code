@@ -74,27 +74,52 @@ export function GroupsScreen({ t, lang, setScreen, user }) {
     if (!joinCode.trim()) return;
     setLoading(true);
     try {
+      // ── Step 1: Find group by code ────────────────────────────────────────
       const { data: group, error: groupError } = await supabase
         .from("groups")
         .select("*")
-        .eq("code", joinCode.toUpperCase())
-        .single();
-      if (groupError || !group) {
-        alert("Invalid code");
+        .eq("code", joinCode.trim().toUpperCase())
+        .maybeSingle(); // maybeSingle returns null (not error) if not found
+
+      if (groupError) throw groupError;
+
+      if (!group) {
+        alert(lang === "ar" ? "رمز غير صحيح. تحقق من الرمز وحاول مجدداً." : "Invalid code. Please check and try again.");
         return;
       }
-      await supabase
+
+      // ── Step 2: Check if already a member ────────────────────────────────
+      const { data: existingMember } = await supabase
+        .from("group_members")
+        .select("user_id")
+        .eq("group_id", group.id)
+        .eq("user_id", user.uid)
+        .maybeSingle();
+
+      if (existingMember) {
+        alert(lang === "ar" ? "أنت عضو في هذه المجموعة بالفعل." : "You are already a member of this group.");
+        setShowJoinModal(false);
+        setJoinCode("");
+        return;
+      }
+
+      // ── Step 3: Join group ────────────────────────────────────────────────
+      const { error: joinError } = await supabase
         .from("group_members")
         .insert([{ group_id: group.id, user_id: user.uid, role: "member" }]);
+
+      if (joinError) throw joinError;
+
       setJoinCode("");
       setShowJoinModal(false);
       fetchUserGroups();
+      alert(lang === "ar" ? `تم الانضمام إلى "${group.name}" بنجاح! 🎉` : `Successfully joined "${group.name}"! 🎉`);
     } catch (error) {
       console.error("Join Group Error:", error);
       alert(
-        lang === "en"
-          ? `Error joining group: ${error.message || "Unknown error"}`
-          : `خطأ أثناء الانضمام: ${error.message || "خطأ غير معروف"}`,
+        lang === "ar"
+          ? `خطأ أثناء الانضمام: ${error.message || "خطأ غير معروف"}`
+          : `Error joining group: ${error.message || "Unknown error"}`
       );
     } finally {
       setLoading(false);
