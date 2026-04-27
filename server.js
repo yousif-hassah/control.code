@@ -60,9 +60,17 @@ app.post("/api/send-otp", async (req, res) => {
     console.log(`📨 Message ID: ${info.messageId}`);
     res.status(200).json({ success: true });
   } catch (error) {
-    console.error("❌ Nodemailer Error:", error);
-    console.error("❌ Error details:", error.message);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("❌ Nodemailer Error:", error.message);
+    console.log("-----------------------------------------");
+    console.log(`🔑 OFFLINE MODE: Verification Code for ${email} is: ${otp}`);
+    console.log("-----------------------------------------");
+    
+    // Return success even if email fails during development for offline testing
+    res.status(200).json({ 
+      success: true, 
+      message: "Email failed but OTP generated for offline testing",
+      offline: true 
+    });
   }
 });
 

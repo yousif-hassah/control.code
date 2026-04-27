@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
-import { useUser, SignedIn, SignedOut, SignIn, useClerk } from "@clerk/clerk-react";
+// Clerk hooks are NOT imported here — they're passed as props from AppClerkHooks
+// (or mocked by main.jsx in offline mode). This keeps App working without internet.
+// SignIn is just a component (not a hook), safe to import without ClerkProvider.
+import { SignIn } from "@clerk/clerk-react";
 import {
   Home,
   Compass,
@@ -402,9 +405,13 @@ const generateCalendarDays = () => {
 
 const CALENDAR_DAYS = generateCalendarDays();
 
-export default function App() {
-  const { isLoaded: clerkIsLoaded, isSignedIn: clerkIsSignedIn, user: clerkUser } = useUser();
-  const { signOut } = useClerk();
+export default function App({
+  offlineMode = false,
+  clerkIsLoaded = true,
+  clerkIsSignedIn = false,
+  clerkUser = null,
+  signOut = async () => {},
+}) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -562,29 +569,59 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (clerkIsLoaded && clerkIsSignedIn && clerkUser) {
-      const primaryEmail = clerkUser.primaryEmailAddress?.emailAddress || "";
-      const name = clerkUser.fullName || clerkUser.username || primaryEmail.split("@")[0];
-      
-      localStorage.setItem("userEmail", primaryEmail);
-      localStorage.setItem("userName", name);
-      localStorage.setItem("userId", clerkUser.id);
-      localStorage.setItem("isLoggedIn", "true");
-      
-      setIsLoggedIn(true);
-      fetchProfile(clerkUser.id, primaryEmail, name);
-    } else if (clerkIsLoaded && !clerkIsSignedIn) {
-      setIsLoggedIn(false);
-      setSession(null);
-      setUser(null);
-      setLoading(false);
-      localStorage.removeItem("isLoggedIn");
-      localStorage.removeItem("userEmail");
-      localStorage.removeItem("userName");
-      localStorage.removeItem("userId");
-    } else if (!clerkIsLoaded) {
-      setLoading(true);
+    // Add a timeout for Clerk loading to support offline mode
+    const clerkTimeout = setTimeout(() => {
+      if (!clerkIsLoaded) {
+        console.warn("⏳ Clerk loading timeout. Checking local storage for offline mode...");
+        const savedLoggedIn = localStorage.getItem("isLoggedIn") === "true";
+        if (savedLoggedIn) {
+          const savedUserId = localStorage.getItem("userId");
+          const savedEmail = localStorage.getItem("userEmail");
+          const savedName = localStorage.getItem("userName");
+          
+          if (savedUserId && savedEmail) {
+            setUser({
+              uid: savedUserId,
+              email: savedEmail,
+              name: savedName || savedEmail.split("@")[0],
+              image: "https://api.dicebear.com/7.x/initials/svg?seed=" + (savedName || "User"),
+              level: 1, points: 0, streak: 0,
+              socials: { instagram: "", twitter: "", facebook: "" },
+              achievements: []
+            });
+            setIsLoggedIn(true);
+          }
+        }
+        setLoading(false);
+      }
+    }, 3000);
+
+    if (clerkIsLoaded) {
+      clearTimeout(clerkTimeout);
+      if (clerkIsSignedIn && clerkUser) {
+        const primaryEmail = clerkUser.primaryEmailAddress?.emailAddress || "";
+        const name = clerkUser.fullName || clerkUser.username || primaryEmail.split("@")[0];
+        
+        localStorage.setItem("userEmail", primaryEmail);
+        localStorage.setItem("userName", name);
+        localStorage.setItem("userId", clerkUser.id);
+        localStorage.setItem("isLoggedIn", "true");
+        
+        setIsLoggedIn(true);
+        fetchProfile(clerkUser.id, primaryEmail, name);
+      } else if (!clerkIsSignedIn) {
+        setIsLoggedIn(false);
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+        localStorage.removeItem("isLoggedIn");
+        localStorage.removeItem("userEmail");
+        localStorage.removeItem("userName");
+        localStorage.removeItem("userId");
+      }
     }
+
+    return () => clearTimeout(clerkTimeout);
   }, [clerkIsLoaded, clerkIsSignedIn, clerkUser]);
 
   const [todoLists, setTodoLists] = useState({});
@@ -1284,53 +1321,187 @@ export default function App() {
   }
 
   if (!isLoggedIn) {
+    // In offline mode OR when Clerk fails → use the built-in OTP AuthScreen
+    // In online mode → show Clerk's SignIn component (loaded dynamically below)
+    if (offlineMode) {
+      return (
+        <div className={`iphone-frame ${lang === "ar" ? "rtl" : ""} theme-${theme}`}>
+          <AuthScreen t={t} lang={lang} onLogin={handleLogin} theme={theme} toggleTheme={toggleTheme} />
+        </div>
+      );
+    }
+
+    // Online mode: show Clerk's SignIn (ClerkProvider is in the tree via AppClerkHooks)
+    // ── Build dynamic Clerk appearance from current theme + lang ──────────────
+    const isDark = theme === "dark";
+    const isRTL  = lang === "ar";
+
+    const clerkSignInAppearance = {
+      layout: {
+        // Swap logo: white logo on dark bg, black logo on light bg
+        logoImageUrl: isDark ? "/logo_dark.png" : "/logo.png",
+        logoLinkUrl: "/",
+        socialButtonsVariant: "iconButton",
+      },
+      variables: {
+        colorPrimary:        "#D35400",
+        colorBackground:     isDark ? "#111111" : "#ffffff",
+        colorText:           isDark ? "#e0e0e0" : "#333333",
+        colorTextSecondary:  isDark ? "#bbbbbb" : "#666666",
+        colorInputBackground:isDark ? "#1c1c1c" : "#f8f9fa",
+        colorInputText:      isDark ? "#e0e0e0" : "#333333",
+        colorNeutral:        isDark ? "#444444" : "#cccccc",
+        borderRadius:        "14px",
+        fontFamily:          '"Outfit", sans-serif',
+        fontSize:            "15px",
+      },
+      elements: {
+        // ── Logo ──────────────────────────────────────────────────────────────
+        logoImage: {
+          width: "160px",
+          height: "auto",
+          objectFit: "contain",
+          marginBottom: "4px",
+        },
+        // ── Card shell ────────────────────────────────────────────────────────
+        card: {
+          boxShadow: isDark
+            ? "0 24px 64px rgba(0,0,0,0.85)"
+            : "0 10px 40px rgba(0,0,0,0.08)",
+          border: isDark
+            ? "1px solid rgba(255,255,255,0.08)"
+            : "1px solid rgba(0,0,0,0.06)",
+          borderRadius: "24px",
+          background: isDark ? "#111111" : "#ffffff",
+        },
+        // ── RTL text alignment for Arabic ─────────────────────────────────────
+        headerTitle: {
+          direction: isRTL ? "rtl" : "ltr",
+          textAlign: isRTL ? "right" : "center",
+        },
+        headerSubtitle: {
+          direction: isRTL ? "rtl" : "ltr",
+          textAlign: isRTL ? "right" : "center",
+        },
+        formFieldLabel: {
+          direction: isRTL ? "rtl" : "ltr",
+          textAlign: isRTL ? "right" : "left",
+        },
+        formFieldInput: {
+          direction: isRTL ? "rtl" : "ltr",
+          textAlign: isRTL ? "right" : "left",
+          background: isDark ? "#1c1c1c" : "#f8f9fa",
+          border: isDark
+            ? "1px solid rgba(255,255,255,0.1)"
+            : "1px solid rgba(0,0,0,0.08)",
+          color: isDark ? "#e0e0e0" : "#333333",
+        },
+        // ── Divider ───────────────────────────────────────────────────────────
+        dividerLine: {
+          background: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
+        },
+        dividerText: {
+          color: isDark ? "#888888" : "#999999",
+        },
+        // ── Primary button ────────────────────────────────────────────────────
+        formButtonPrimary: {
+          background: "#D35400",
+          fontFamily: '"Outfit", sans-serif',
+          fontWeight: "600",
+          letterSpacing: "0.3px",
+        },
+        // ── Social buttons ────────────────────────────────────────────────────
+        socialButtonsIconButton: {
+          border: isDark
+            ? "1px solid rgba(255,255,255,0.12)"
+            : "1px solid rgba(0,0,0,0.08)",
+          background: isDark ? "#1a1a1a" : "#ffffff",
+        },
+        socialButtonsBlockButton: {
+          border: isDark
+            ? "1px solid rgba(255,255,255,0.12)"
+            : "1px solid rgba(0,0,0,0.08)",
+          background: isDark ? "#1a1a1a" : "#ffffff",
+          color: isDark ? "#e0e0e0" : "#333333",
+        },
+        // ── Hide sign-up footer ───────────────────────────────────────────────
+        footerAction: { display: "none" },
+        footer:       { display: "none" },
+      },
+    };
+
     return (
       <div
-        className={`iphone-frame ${lang === "ar" ? "rtl" : ""} theme-${theme}`}
+        className={`iphone-frame ${isRTL ? "rtl" : ""} theme-${theme}`}
       >
-        <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", backgroundColor: "var(--bg-main)" }}>
-          <header style={{ padding: "40px 20px 20px", display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+        <div style={{
+          height: "100%",
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: isDark ? "#000000" : "#F1F6F9",
+          transition: "background-color 0.3s ease",
+        }}>
+          {/* ── Toggle bar: theme + language ─────────────────────────────── */}
+          <header style={{
+            padding: "40px 20px 20px",
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: "10px",
+          }}>
             <button
               onClick={toggleTheme}
               style={{
-                background: "var(--card-bg, white)",
-                border: "none",
+                background: isDark ? "rgba(255,255,255,0.08)" : "white",
+                border: isDark ? "1px solid rgba(255,255,255,0.1)" : "none",
                 width: "40px",
                 height: "40px",
                 borderRadius: "50%",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: "var(--text-main)",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+                color: isDark ? "#e0e0e0" : "#333333",
+                boxShadow: isDark ? "none" : "0 4px 12px rgba(0,0,0,0.06)",
                 cursor: "pointer",
+                transition: "all 0.3s ease",
               }}
             >
-              {theme === "light" ? <Moon size={20} /> : <Sun size={20} />}
+              {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
             <button
               onClick={toggleLang}
               style={{
-                background: "var(--card-bg, white)",
-                border: "none",
+                background: isDark ? "rgba(255,255,255,0.08)" : "white",
+                border: isDark ? "1px solid rgba(255,255,255,0.1)" : "none",
                 width: "40px",
                 height: "40px",
                 borderRadius: "50%",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: "var(--text-main)",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+                color: isDark ? "#e0e0e0" : "#333333",
+                boxShadow: isDark ? "none" : "0 4px 12px rgba(0,0,0,0.06)",
                 cursor: "pointer",
+                fontWeight: "bold",
+                fontSize: "0.9rem",
+                fontFamily: '"Outfit", sans-serif',
+                transition: "all 0.3s ease",
               }}
             >
-              <span style={{ fontWeight: "bold", fontSize: "0.9rem" }}>
-                {lang === "en" ? "ع" : "EN"}
-              </span>
+              {isRTL ? "EN" : "ع"}
             </button>
           </header>
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", paddingBottom: "40px" }}>
-            <SignIn routing="hash" />
+
+          {/* ── Clerk SignIn card ─────────────────────────────────────────── */}
+          <div style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            paddingBottom: "40px",
+            direction: isRTL ? "rtl" : "ltr",
+          }}>
+            <SignIn routing="hash" appearance={clerkSignInAppearance} />
           </div>
         </div>
       </div>
