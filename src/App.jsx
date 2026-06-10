@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
-// Clerk hooks are NOT imported here — they're passed as props from AppClerkHooks
-// (or mocked by main.jsx in offline mode). This keeps App working without internet.
-// SignIn is just a component (not a hook), safe to import without ClerkProvider.
-import { SignIn } from "@clerk/clerk-react";
+import { supabase } from "./lib/supabaseClient";
+import { GoogleAuthScreen, IAIScreen } from "./IAIScreen";
 import {
   Home,
   Compass,
@@ -36,20 +34,25 @@ import {
   TrendingUp,
   Activity,
   BarChart2,
+  Brain,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
-import { supabase } from "./lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 import { GroupsScreen } from "./GroupsScreen";
+import { requestForToken } from "./lib/firebase";
+import { messaging } from "./lib/firebase";
+import { onMessage } from "firebase/messaging";
 
 const PALETTE = {
-  NAVY: "#394867",
-  DEEP_NAVY: "#212A3E",
-  GRAY: "#9BA4B5",
-  ICE: "#F1F6F9",
-  TEAL: "#1D546D",
-  GREEN: "#5F9598",
-  BEIGE: "#EAE0CF",
-  BLUE: "#94B4C1",
+  NAVY: "#000000",
+  DEEP_NAVY: "#111111",
+  GRAY: "#888888",
+  ICE: "#F5F5F5",
+  TEAL: "#000000",
+  GREEN: "#333333",
+  BEIGE: "#FFFFFF",
+  BLUE: "#666666",
 };
 
 const TRANSLATIONS = {
@@ -305,7 +308,7 @@ const EXPLORE_ITEMS = [
     title: { en: "Inner Peace", ar: "السلام الداخلي" },
     type: { en: "Meditation", ar: "تأمل" },
     duration: "12 min",
-    color: "#E5EAFF",
+    color: "#E0E0E0",
     category: "calm",
     icon: "🧘",
     featured: true,
@@ -315,7 +318,7 @@ const EXPLORE_ITEMS = [
     title: { en: "Night Rain", ar: "مطر الليل" },
     type: { en: "Soundscape", ar: "طبيعة" },
     duration: "45 min",
-    color: "#FFE5E5",
+    color: "#F5F5F5",
     category: "sleep",
     icon: "🌧️",
   },
@@ -324,7 +327,7 @@ const EXPLORE_ITEMS = [
     title: { en: "Ocean Waves", ar: "أمواج المحيط" },
     type: { en: "Sound", ar: "صوت" },
     duration: "30 min",
-    color: "#E5FFEB",
+    color: "#EEEEEE",
     category: "relax",
     icon: "🌊",
   },
@@ -333,7 +336,7 @@ const EXPLORE_ITEMS = [
     title: { en: "Zen Focus", ar: "تركيز زين" },
     type: { en: "Music", ar: "موسيقى" },
     duration: "60 min",
-    color: "#FFF4E5",
+    color: "#F0F0F0",
     category: "focus",
     icon: "🎹",
   },
@@ -342,7 +345,7 @@ const EXPLORE_ITEMS = [
     title: { en: "Mindful Breath", ar: "تنفس واعٍ" },
     type: { en: "Meditation", ar: "تأمل" },
     duration: "5 min",
-    color: "#F3E5FF",
+    color: "#FAFAFA",
     category: "morning",
     icon: "🌬️",
   },
@@ -351,7 +354,7 @@ const EXPLORE_ITEMS = [
     title: { en: "Forest Walk", ar: "مشي في الغابة" },
     type: { en: "Guided", ar: "إرشاد" },
     duration: "20 min",
-    color: "#E5F9FF",
+    color: "#E8E8E8",
     category: "anxiety",
     icon: "🌲",
   },
@@ -360,7 +363,7 @@ const EXPLORE_ITEMS = [
     title: { en: "Deep Sleep", ar: "نوم عميق" },
     type: { en: "Meditation", ar: "تأمل اليوم" },
     duration: "15 min",
-    color: "#EBF5FB",
+    color: "#F2F2F2",
     category: "sleep",
     icon: "😴",
   },
@@ -369,7 +372,7 @@ const EXPLORE_ITEMS = [
     title: { en: "Mountain Air", ar: "هواء الجبل" },
     type: { en: "Breathing", ar: "تنفس" },
     duration: "10 min",
-    color: "#FEF9E7",
+    color: "#F8F8F8",
     category: "morning",
     icon: "🏔️",
   },
@@ -378,7 +381,7 @@ const EXPLORE_ITEMS = [
     title: { en: "Summer Meadow", ar: "مرج الصيف" },
     type: { en: "Soundscape", ar: "موسيقى طبيعية" },
     duration: "30 min",
-    color: "#D5F5E3",
+    color: "#EBEBEB",
     category: "relax",
     icon: "🌺",
   },
@@ -405,13 +408,7 @@ const generateCalendarDays = () => {
 
 const CALENDAR_DAYS = generateCalendarDays();
 
-export default function App({
-  offlineMode = false,
-  clerkIsLoaded = true,
-  clerkIsSignedIn = false,
-  clerkUser = null,
-  signOut = async () => {},
-}) {
+export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -426,7 +423,22 @@ export default function App({
   const [user, setUser] = useState(null);
   const [groupStats, setGroupStats] = useState({ completed: 0, total: 0 });
 
-  const fetchProfile = async (userId, userEmail, metadataName) => {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [showOnlineBadge, setShowOnlineBadge] = useState(false);
+  const [pwaInstallable, setPwaInstallable] = useState(false);
+
+  // Listen for PWA install readiness from main.jsx
+  useEffect(() => {
+    const handler = () => setPwaInstallable(true);
+    window.addEventListener('pwa-installable', handler);
+    window.addEventListener('appinstalled', () => setPwaInstallable(false));
+    // Check if prompt is already stored (page already loaded before React mounted)
+    if (window.__pwaInstallPrompt) setPwaInstallable(true);
+    return () => window.removeEventListener('pwa-installable', handler);
+  }, []);
+
+
+  const fetchProfile = async (userId, userEmail, metadataName, metadataImage) => {
     try {
       console.log("🔄 Fetching profile for:", userEmail);
 
@@ -467,7 +479,8 @@ export default function App({
         existingProfile?.name || metadataName || userEmail.split("@")[0];
       const finalImage =
         existingProfile?.image_url ||
-        "https://api.dicebear.com/7.x/initials/svg?seed=" + finalName;
+        metadataImage ||
+        `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(finalName)}`;
 
       const userData = {
         uid: finalId,
@@ -568,70 +581,182 @@ export default function App({
     }
   };
 
+  const [supabaseSession, setSupabaseSession] = useState(null);
+
+  // ── Supabase Auth (Google OAuth) ──────────────────────────────────────────
   useEffect(() => {
-    // Add a timeout for Clerk loading to support offline mode
-    const clerkTimeout = setTimeout(() => {
-      if (!clerkIsLoaded) {
-        console.warn("⏳ Clerk loading timeout. Checking local storage for offline mode...");
-        const savedLoggedIn = localStorage.getItem("isLoggedIn") === "true";
-        if (savedLoggedIn) {
-          const savedUserId = localStorage.getItem("userId");
-          const savedEmail = localStorage.getItem("userEmail");
-          const savedName = localStorage.getItem("userName");
-          
-          if (savedUserId && savedEmail) {
-            setUser({
-              uid: savedUserId,
-              email: savedEmail,
-              name: savedName || savedEmail.split("@")[0],
-              image: "https://api.dicebear.com/7.x/initials/svg?seed=" + (savedName || "User"),
-              level: 1, points: 0, streak: 0,
-              socials: { instagram: "", twitter: "", facebook: "" },
-              achievements: []
-            });
-            setIsLoggedIn(true);
-          }
-        }
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSupabaseSession(session);
+      if (session?.user) {
+        const u = session.user;
+        const name = u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split("@")[0] || "User";
+        const image = u.user_metadata?.avatar_url || u.user_metadata?.picture ||
+          `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`;
+        fetchProfile(u.id, u.email, name, image);
+      } else {
         setLoading(false);
       }
-    }, 3000);
+    });
 
-    if (clerkIsLoaded) {
-      clearTimeout(clerkTimeout);
-      if (clerkIsSignedIn && clerkUser) {
-        const primaryEmail = clerkUser.primaryEmailAddress?.emailAddress || "";
-        const name = clerkUser.fullName || clerkUser.username || primaryEmail.split("@")[0];
-        
-        localStorage.setItem("userEmail", primaryEmail);
-        localStorage.setItem("userName", name);
-        localStorage.setItem("userId", clerkUser.id);
-        localStorage.setItem("isLoggedIn", "true");
-        
-        setIsLoggedIn(true);
-        fetchProfile(clerkUser.id, primaryEmail, name);
-      } else if (!clerkIsSignedIn) {
+    // Listen for auth state changes (after OAuth redirect)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSupabaseSession(session);
+      if (session?.user) {
+        const u = session.user;
+        const name = u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split("@")[0] || "User";
+        const image = u.user_metadata?.avatar_url || u.user_metadata?.picture ||
+          `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`;
+        if (!user) fetchProfile(u.id, u.email, name, image);
+      } else {
         setIsLoggedIn(false);
-        setSession(null);
         setUser(null);
         setLoading(false);
-        localStorage.removeItem("isLoggedIn");
-        localStorage.removeItem("userEmail");
-        localStorage.removeItem("userName");
-        localStorage.removeItem("userId");
       }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const [todoLists, setTodoLists] = useState(() => {
+    try {
+      const saved = localStorage.getItem("cached_todos");
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
     }
-
-    return () => clearTimeout(clerkTimeout);
-  }, [clerkIsLoaded, clerkIsSignedIn, clerkUser]);
-
-  const [todoLists, setTodoLists] = useState({});
+  });
   useEffect(() => {
     if (user?.uid) {
       fetchTodos();
       fetchJournals();
       fetchPinnedNotes();
       fetchGroupStats();
+      
+      // Request Notification Token & save it by EMAIL (reliable conflict key)
+      requestForToken().then(async (token) => {
+        if (token && user.email) {
+          const { error } = await supabase
+            .from("profiles")
+            .update({ fcm_token: token })
+            .ilike("email", user.email);
+
+          if (!error) {
+            console.log("✅ FCM Token saved to Supabase by email successfully");
+          } else {
+            console.error("❌ Error saving FCM token:", error.message);
+          }
+        }
+      });
     }
+  }, [user?.uid]);
+
+  // ── Local Notification Helper (browser Notification API) ─────────────────
+  const sendLocalNotification = (title, body, icon = "/controll.app.png") => {
+    // Play sound
+    try {
+      const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3");
+      audio.volume = 0.6;
+      audio.play().catch(() => {});
+    } catch (e) {}
+
+    // Show browser notification
+    if (Notification.permission === "granted") {
+      new Notification(title, { body, icon });
+    } else if (Notification.permission !== "denied") {
+      Notification.requestPermission().then(permission => {
+        if (permission === "granted") new Notification(title, { body, icon });
+      });
+    }
+
+    // Also add to in-app notifications list
+    setNotifications(prev => [{
+      id: Date.now(),
+      type: "system",
+      text: `${title}: ${body}`,
+      time: lang === "en" ? "Just now" : "الآن",
+      read: false,
+    }, ...prev]);
+  };
+
+  // Handle incoming messages while the app is open - persistent listener (FCM fallback)
+  useEffect(() => {
+    if (!messaging) return;
+    const unsubscribe = onMessage(messaging, (payload) => {
+      console.log("🔔 FCM Notification received in foreground:", payload);
+      try {
+        const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3");
+        audio.volume = 0.5;
+        audio.play().catch(() => {});
+      } catch (audioErr) {}
+      const newNotif = {
+        id: Date.now(),
+        type: "system",
+        text: (payload.notification?.title || "") + ": " + (payload.notification?.body || ""),
+        time: lang === "en" ? "Just now" : "الآن",
+        read: false,
+      };
+      setNotifications(prev => [newNotif, ...prev]);
+    });
+    return () => unsubscribe();
+  }, [messaging]);
+
+  // ── Supabase Realtime Notification Listener ─────────────────────────
+  // This is the PRIMARY notification system (works on localhost & HTTPS).
+  // It listens for new rows in group_notifications and shows browser alerts.
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const channel = supabase
+      .channel(`user_notifications_${user.uid}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "group_notifications" },
+        (payload) => {
+          const notif = payload.new;
+
+          // Skip: notification sent by THIS user (they don't notify themselves)
+          if (notif.sender_id === user.uid) return;
+
+          // Skip: notification targeted at a SPECIFIC other user (not us)
+          if (notif.recipient_id && notif.recipient_id !== user.uid) return;
+
+          console.log("🔔 Realtime notification received:", notif.title, notif.body);
+
+          // 1. Play sound
+          try {
+            const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3");
+            audio.volume = 0.7;
+            audio.play().catch(() => {});
+          } catch (e) {}
+
+          // 2. Show browser notification (if permission granted)
+          if (Notification.permission === "granted") {
+            new Notification(notif.title, {
+              body: notif.body,
+              icon: "/controll.app.png",
+              badge: "/controll.app.png",
+              tag: notif.id,  // prevent duplicate popups
+            });
+          }
+
+          // 3. Add to in-app notification list
+          setNotifications(prev => [{
+            id: notif.id || Date.now(),
+            type: notif.type || "system",
+            text: `${notif.title}: ${notif.body}`,
+            time: lang === "en" ? "Just now" : "الآن",
+            read: false,
+          }, ...prev]);
+        }
+      )
+      .subscribe((status) => {
+        console.log("📡 Realtime notification channel status:", status);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user?.uid]);
 
   const fetchTodos = async () => {
@@ -644,7 +769,7 @@ export default function App({
 
       if (error) {
         console.error("Fetch Todos Error:", error);
-        return;
+        throw error;
       }
 
       if (data) {
@@ -658,9 +783,12 @@ export default function App({
           });
         });
         setTodoLists(formatted);
+        localStorage.setItem("cached_todos", JSON.stringify(formatted));
       }
     } catch (err) {
-      console.error("Unexpected fetchTodos error:", err);
+      console.warn("Offline fallback for fetchTodos:", err);
+      const saved = localStorage.getItem("cached_todos");
+      if (saved) setTodoLists(JSON.parse(saved));
     }
   };
 
@@ -674,7 +802,7 @@ export default function App({
 
       if (error) {
         console.error("Fetch Journals Error:", error);
-        return;
+        throw error;
       }
 
       if (data) {
@@ -689,9 +817,12 @@ export default function App({
           }
         });
         setJournals(formatted);
+        localStorage.setItem("cached_journals", JSON.stringify(formatted));
       }
     } catch (err) {
-      console.error("Unexpected fetchJournals error:", err);
+      console.warn("Offline fallback for fetchJournals:", err);
+      const saved = localStorage.getItem("cached_journals");
+      if (saved) setJournals(JSON.parse(saved));
     }
   };
 
@@ -705,7 +836,7 @@ export default function App({
 
       if (error) {
         console.error("Fetch PinnedNotes Error:", error);
-        return;
+        throw error;
       }
 
       if (data) {
@@ -716,9 +847,12 @@ export default function App({
           formatted[noteDate].push(n);
         });
         setAllPinnedNotes(formatted);
+        localStorage.setItem("cached_pinned_notes", JSON.stringify(formatted));
       }
     } catch (err) {
-      console.error("Unexpected fetchPinnedNotes error:", err);
+      console.warn("Offline fallback for fetchPinnedNotes:", err);
+      const saved = localStorage.getItem("cached_pinned_notes");
+      if (saved) setAllPinnedNotes(JSON.parse(saved));
     }
   };
 
@@ -745,46 +879,7 @@ export default function App({
       console.error("Error fetching group stats:", e);
     }
   };
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      type: "system",
-      text:
-        lang === "en" ? "Welcome to Control! 🧘" : "مرحباً بك في Control! 🧘",
-      time: lang === "en" ? "1h ago" : "منذ ساعة",
-      read: false,
-    },
-    {
-      id: 2,
-      type: "social",
-      text:
-        lang === "en"
-          ? "Group 'Family Trip' has a new update"
-          : "هناك تحديث جديد في مجموعة 'رحلة العائلة'",
-      time: lang === "en" ? "3h ago" : "منذ 3 ساعات",
-      read: true,
-    },
-    {
-      id: 3,
-      type: "milestone",
-      text:
-        lang === "en"
-          ? "You've reached a 7-day streak! 🔥"
-          : "لقد وصلت إلى سلسلة من 7 أيام! 🔥",
-      time: lang === "en" ? "5h ago" : "منذ 5 ساعات",
-      read: false,
-    },
-    {
-      id: 4,
-      type: "system",
-      text:
-        lang === "en"
-          ? "Supabase connection is now active! 🚀"
-          : "تم تفعيل الاتصال بـ Supabase بنجاح! 🚀",
-      time: lang === "en" ? "Just now" : "الآن",
-      read: false,
-    },
-  ]);
+  const [notifications, setNotifications] = useState([]);
   const [activeMeditation, setActiveMeditation] = useState(null);
   const [meditationHistory, setMeditationHistory] = useState(() => {
     try {
@@ -815,19 +910,10 @@ export default function App({
   }, [user?.uid]);
 
   const fetchGroups = async () => {
+    if (!user?.uid) return;
     const { data, error } = await supabase
       .from("group_members")
-      .select(
-        `
-        role,
-        groups (
-          id,
-          name,
-          code,
-          created_at
-        )
-      `,
-      )
+      .select("*")
       .eq("user_id", user.uid);
 
     if (data) {
@@ -845,9 +931,23 @@ export default function App({
   };
   const [activeGroupId, setActiveGroupId] = useState(null);
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
-  const [journals, setJournals] = useState({});
+  const [journals, setJournals] = useState(() => {
+    try {
+      const saved = localStorage.getItem("cached_journals");
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
 
-  const [allPinnedNotes, setAllPinnedNotes] = useState({});
+  const [allPinnedNotes, setAllPinnedNotes] = useState(() => {
+    try {
+      const saved = localStorage.getItem("cached_pinned_notes");
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
 
   const pinnedNotes = allPinnedNotes[selectedDate] || [];
 
@@ -1038,54 +1138,97 @@ export default function App({
     localStorage.setItem("groups", JSON.stringify(updated));
   };
 
-  const saveJournal = async (date, entries) => {
-    setJournals({ ...journals, [date]: entries });
-    if (!user?.uid) return;
+  // ── UUID generator for offline created notes ─────────────────────────
+  const generateUUID = () => {
+    if (typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0;
+      const v = c === "x" ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  };
 
+  // ── Offline Queue Manager ──────────────────────────────────────────
+  const queueOfflineAction = (action) => {
     try {
-      const { error } = await supabase.from("journals").upsert(
-        {
-          user_id: user.uid,
-          date,
-          content: JSON.stringify(entries),
-        },
-        { onConflict: "user_id,date" },
-      );
-      if (error) console.error("Journal Save Error:", error);
-    } catch (err) {
-      console.error("Unexpected saveJournal error:", err);
+      const queueStr = localStorage.getItem("offline_sync_queue");
+      const queue = queueStr ? JSON.parse(queueStr) : [];
+      queue.push(action);
+      localStorage.setItem("offline_sync_queue", JSON.stringify(queue));
+      console.log("📥 Action queued offline:", action.type);
+    } catch (e) {
+      console.error("Failed to queue offline action:", e);
     }
   };
 
-  const saveTodos = async (date, todos) => {
-    setTodoLists({ ...todoLists, [date]: todos });
-    if (!user?.uid) return;
-
+  const processOfflineQueue = async () => {
+    if (!navigator.onLine || !user?.uid) return;
+    const queueStr = localStorage.getItem("offline_sync_queue");
+    if (!queueStr) return;
+    
+    let queue = [];
     try {
-      // Delete existing for this date and re-insert
-      const { error: delError } = await supabase
-        .from("todos")
-        .delete()
-        .eq("user_id", user.uid)
-        .eq("date", date);
-
-      if (delError) console.error("Todo Sync (Delete) Error:", delError);
-
-      if (todos.length > 0) {
-        const toInsert = todos.map((t) => ({
-          user_id: user.uid,
-          date,
-          text: t.text,
-          completed: t.completed,
-        }));
-        const { error: insError } = await supabase
-          .from("todos")
-          .insert(toInsert);
-        if (insError) console.error("Todo Sync (Insert) Error:", insError);
-      }
-    } catch (err) {
-      console.error("Unexpected saveTodos error:", err);
+      queue = JSON.parse(queueStr);
+    } catch (e) {
+      console.error("Error parsing offline sync queue:", e);
+      return;
     }
+    
+    if (queue.length === 0) return;
+    
+    console.log(`🔄 Processing ${queue.length} offline actions...`);
+    
+    for (const action of queue) {
+      try {
+        if (action.type === "save_journal") {
+          await supabase.from("journals").upsert(
+            {
+              user_id: user.uid,
+              date: action.date,
+              content: JSON.stringify(action.entries),
+            },
+            { onConflict: "user_id,date" }
+          );
+        } else if (action.type === "save_todos") {
+          await supabase
+            .from("todos")
+            .delete()
+            .eq("user_id", user.uid)
+            .eq("date", action.date);
+            
+          if (action.todos.length > 0) {
+            const toInsert = action.todos.map((t) => ({
+              user_id: user.uid,
+              date: action.date,
+              text: t.text,
+              completed: t.completed,
+            }));
+            await supabase.from("todos").insert(toInsert);
+          }
+        } else if (action.type === "add_note") {
+          await supabase.from("pinned_notes").insert([action.note]);
+        } else if (action.type === "update_note") {
+          await supabase
+            .from("pinned_notes")
+            .update(action.fields)
+            .eq("id", action.id)
+            .eq("user_id", user.uid);
+        } else if (action.type === "delete_note") {
+          await supabase
+            .from("pinned_notes")
+            .delete()
+            .eq("id", action.id);
+        }
+      } catch (err) {
+        console.error("Error processing queue action:", action, err);
+        if (!navigator.onLine) break; 
+      }
+    }
+    
+    localStorage.removeItem("offline_sync_queue");
+    console.log("✅ Offline sync queue processed successfully");
   };
 
   const [dailyHabits, setDailyHabits] = useState(() => {
@@ -1099,62 +1242,215 @@ export default function App({
   });
 
   const saveDailyHabit = async (date, habit) => {
-    setDailyHabits({ ...dailyHabits, [date]: habit });
-    // This could also be synced to a dedicated habits table if needed
+    const updated = { ...dailyHabits, [date]: habit };
+    setDailyHabits(updated);
+    localStorage.setItem("dailyHabits", JSON.stringify(updated));
+  };
+
+  const saveJournal = async (date, entries) => {
+    const updatedJournals = { ...journals, [date]: entries };
+    setJournals(updatedJournals);
+    localStorage.setItem("cached_journals", JSON.stringify(updatedJournals));
+    
+    if (!user?.uid) return;
+
+    if (!navigator.onLine) {
+      queueOfflineAction({ type: "save_journal", date, entries });
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from("journals").upsert(
+        {
+          user_id: user.uid,
+          date,
+          content: JSON.stringify(entries),
+        },
+        { onConflict: "user_id,date" },
+      );
+      if (error) {
+        console.error("Journal Save Error, queuing:", error);
+        queueOfflineAction({ type: "save_journal", date, entries });
+      }
+    } catch (err) {
+      console.error("Unexpected saveJournal error, queuing:", err);
+      queueOfflineAction({ type: "save_journal", date, entries });
+    }
+  };
+
+  const saveTodos = async (date, todos) => {
+    const updatedTodos = { ...todoLists, [date]: todos };
+    setTodoLists(updatedTodos);
+    localStorage.setItem("cached_todos", JSON.stringify(updatedTodos));
+    
+    if (!user?.uid) return;
+
+    if (!navigator.onLine) {
+      queueOfflineAction({ type: "save_todos", date, todos });
+      return;
+    }
+
+    try {
+      const { error: delError } = await supabase
+        .from("todos")
+        .delete()
+        .eq("user_id", user.uid)
+        .eq("date", date);
+
+      if (delError) throw delError;
+
+      if (todos.length > 0) {
+        const toInsert = todos.map((t) => ({
+          user_id: user.uid,
+          date,
+          text: t.text,
+          completed: t.completed,
+        }));
+        const { error: insError } = await supabase
+          .from("todos")
+          .insert(toInsert);
+        if (insError) throw insError;
+      }
+    } catch (err) {
+      console.error("Unexpected saveTodos error, queuing:", err);
+      queueOfflineAction({ type: "save_todos", date, todos });
+    }
   };
 
   const addPinnedNote = async (title, content) => {
     if (!user?.uid) return null;
-    try {
-      const newNote = {
-        date: selectedDate,
-        user_id: user.uid,
-        title: title || "",
-        content: content || "",
-        color: "#394867",
-        pinned: true,
-      };
+    
+    const noteId = generateUUID();
+    const newNote = {
+      id: noteId,
+      date: selectedDate,
+      user_id: user.uid,
+      title: title || "",
+      content: content || "",
+      color: "#394867",
+      pinned: true,
+    };
 
-      const { data, error } = await supabase
+    const updatedForDate = [newNote, ...pinnedNotes];
+    const updatedAllNotes = {
+      ...allPinnedNotes,
+      [selectedDate]: updatedForDate,
+    };
+    setAllPinnedNotes(updatedAllNotes);
+    localStorage.setItem("cached_pinned_notes", JSON.stringify(updatedAllNotes));
+
+    if (!navigator.onLine) {
+      queueOfflineAction({ type: "add_note", note: newNote });
+      return noteId;
+    }
+
+    try {
+      const { error } = await supabase
         .from("pinned_notes")
-        .insert([newNote])
-        .select()
-        .single();
+        .insert([newNote]);
 
       if (error) {
-        console.error("Add PinnedNote Error:", error);
-        return null;
-      }
-
-      if (data) {
-        const updatedForDate = [data, ...pinnedNotes];
-        setAllPinnedNotes({
-          ...allPinnedNotes,
-          [selectedDate]: updatedForDate,
-        });
-        return data.id;
+        console.error("Add PinnedNote Error, queuing:", error);
+        queueOfflineAction({ type: "add_note", note: newNote });
       }
     } catch (err) {
-      console.error("Unexpected addPinnedNote error:", err);
+      console.error("Unexpected addPinnedNote error, queuing:", err);
+      queueOfflineAction({ type: "add_note", note: newNote });
     }
-    return null;
+    return noteId;
+  };
+
+  const updatePinnedNote = async (id, fields) => {
+    if (!user?.uid) return false;
+
+    const updatedForDate = pinnedNotes.map((n) => 
+      n.id === id ? { ...n, ...fields } : n
+    );
+    const updatedAllNotes = {
+      ...allPinnedNotes,
+      [selectedDate]: updatedForDate,
+    };
+    setAllPinnedNotes(updatedAllNotes);
+    localStorage.setItem("cached_pinned_notes", JSON.stringify(updatedAllNotes));
+
+    if (!navigator.onLine) {
+      queueOfflineAction({ type: "update_note", id, fields });
+      return true;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("pinned_notes")
+        .update(fields)
+        .eq("id", id)
+        .eq("user_id", user.uid);
+      
+      if (error) {
+        console.error("Update PinnedNote Error, queuing:", error);
+        queueOfflineAction({ type: "update_note", id, fields });
+      }
+    } catch (err) {
+      console.error("Unexpected updatePinnedNote error, queuing:", err);
+      queueOfflineAction({ type: "update_note", id, fields });
+    }
+    return true;
   };
 
   const deletePinnedNote = async (id) => {
     if (!user?.uid) return;
-    try {
-      const updatedForDate = pinnedNotes.filter((n) => n.id !== id);
-      setAllPinnedNotes({ ...allPinnedNotes, [selectedDate]: updatedForDate });
 
+    const updatedForDate = pinnedNotes.filter((n) => n.id !== id);
+    const updatedAllNotes = {
+      ...allPinnedNotes,
+      [selectedDate]: updatedForDate,
+    };
+    setAllPinnedNotes(updatedAllNotes);
+    localStorage.setItem("cached_pinned_notes", JSON.stringify(updatedAllNotes));
+
+    if (!navigator.onLine) {
+      queueOfflineAction({ type: "delete_note", id });
+      return;
+    }
+
+    try {
       const { error } = await supabase
         .from("pinned_notes")
         .delete()
         .eq("id", id);
-      if (error) console.error("Delete PinnedNote Error:", error);
+      if (error) {
+        console.error("Delete PinnedNote Error, queuing:", error);
+        queueOfflineAction({ type: "delete_note", id });
+      }
     } catch (err) {
-      console.error("Unexpected deletePinnedNote error:", err);
+      console.error("Unexpected deletePinnedNote error, queuing:", err);
+      queueOfflineAction({ type: "delete_note", id });
     }
   };
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      setShowOnlineBadge(true);
+      setTimeout(() => setShowOnlineBadge(false), 3000);
+      processOfflineQueue();
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    // Run once on load to sync any leftover queue
+    if (navigator.onLine) {
+      processOfflineQueue();
+    }
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [user?.uid]);
 
   const renderScreen = () => {
     const commonProps = {
@@ -1180,6 +1476,7 @@ export default function App({
             setPinnedNotes={setPinnedNotes}
             addPinnedNote={addPinnedNote}
             deletePinnedNote={deletePinnedNote}
+            updatePinnedNote={updatePinnedNote}
             setActiveMeditation={setActiveMeditation}
             dailyHabit={dailyHabits[selectedDate]}
             saveDailyHabit={saveDailyHabit}
@@ -1294,9 +1591,10 @@ export default function App({
   };
 
   const handleLogout = async () => {
-    await signOut();
+    await supabase.auth.signOut();
     setIsLoggedIn(false);
     setSession(null);
+    setSupabaseSession(null);
     setUser(null);
     localStorage.removeItem("isLoggedIn");
     localStorage.removeItem("userEmail");
@@ -1308,222 +1606,203 @@ export default function App({
   if (loading) {
     return (
       <div
-        className={`iphone-frame theme-${theme}`}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
+        className={`app-shell theme-${theme}`}
+        style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}
       >
-        <Loader2 className="spinner" size={48} style={{ color: "#629FAD" }} />
+        <div style={{ textAlign: "center" }}>
+          <Loader2 className="spinner" size={48} style={{ color: "var(--primary-light)" }} />
+          <p style={{ marginTop: 12, color: "var(--text-dim)", fontSize: 14 }}>Loading Control…</p>
+        </div>
       </div>
     );
   }
 
   if (!isLoggedIn) {
-    // In offline mode OR when Clerk fails → use the built-in OTP AuthScreen
-    // In online mode → show Clerk's SignIn component (loaded dynamically below)
-    if (offlineMode) {
-      return (
-        <div className={`iphone-frame ${lang === "ar" ? "rtl" : ""} theme-${theme}`}>
-          <AuthScreen t={t} lang={lang} onLogin={handleLogin} theme={theme} toggleTheme={toggleTheme} />
-        </div>
-      );
-    }
-
-    // Online mode: show Clerk's SignIn (ClerkProvider is in the tree via AppClerkHooks)
-    // ── Build dynamic Clerk appearance from current theme + lang ──────────────
-    const isDark = theme === "dark";
-    const isRTL  = lang === "ar";
-
-    const clerkSignInAppearance = {
-      layout: {
-        // Swap logo: white logo on dark bg, black logo on light bg
-        logoImageUrl: isDark ? "/logo_dark.png" : "/logo.png",
-        logoLinkUrl: "/",
-        socialButtonsVariant: "iconButton",
-      },
-      variables: {
-        colorPrimary:        "#D35400",
-        colorBackground:     isDark ? "#111111" : "#ffffff",
-        colorText:           isDark ? "#e0e0e0" : "#333333",
-        colorTextSecondary:  isDark ? "#bbbbbb" : "#666666",
-        colorInputBackground:isDark ? "#1c1c1c" : "#f8f9fa",
-        colorInputText:      isDark ? "#e0e0e0" : "#333333",
-        colorNeutral:        isDark ? "#444444" : "#cccccc",
-        borderRadius:        "14px",
-        fontFamily:          '"Outfit", sans-serif',
-        fontSize:            "15px",
-      },
-      elements: {
-        // ── Logo ──────────────────────────────────────────────────────────────
-        logoImage: {
-          width: "160px",
-          height: "auto",
-          objectFit: "contain",
-          marginBottom: "4px",
-        },
-        // ── Card shell ────────────────────────────────────────────────────────
-        card: {
-          boxShadow: isDark
-            ? "0 24px 64px rgba(0,0,0,0.85)"
-            : "0 10px 40px rgba(0,0,0,0.08)",
-          border: isDark
-            ? "1px solid rgba(255,255,255,0.08)"
-            : "1px solid rgba(0,0,0,0.06)",
-          borderRadius: "24px",
-          background: isDark ? "#111111" : "#ffffff",
-        },
-        // ── RTL text alignment for Arabic ─────────────────────────────────────
-        headerTitle: {
-          direction: isRTL ? "rtl" : "ltr",
-          textAlign: isRTL ? "right" : "center",
-        },
-        headerSubtitle: {
-          direction: isRTL ? "rtl" : "ltr",
-          textAlign: isRTL ? "right" : "center",
-        },
-        formFieldLabel: {
-          direction: isRTL ? "rtl" : "ltr",
-          textAlign: isRTL ? "right" : "left",
-        },
-        formFieldInput: {
-          direction: isRTL ? "rtl" : "ltr",
-          textAlign: isRTL ? "right" : "left",
-          background: isDark ? "#1c1c1c" : "#f8f9fa",
-          border: isDark
-            ? "1px solid rgba(255,255,255,0.1)"
-            : "1px solid rgba(0,0,0,0.08)",
-          color: isDark ? "#e0e0e0" : "#333333",
-        },
-        // ── Divider ───────────────────────────────────────────────────────────
-        dividerLine: {
-          background: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
-        },
-        dividerText: {
-          color: isDark ? "#888888" : "#999999",
-        },
-        // ── Primary button ────────────────────────────────────────────────────
-        formButtonPrimary: {
-          background: "#D35400",
-          fontFamily: '"Outfit", sans-serif',
-          fontWeight: "600",
-          letterSpacing: "0.3px",
-        },
-        // ── Social buttons ────────────────────────────────────────────────────
-        socialButtonsIconButton: {
-          border: isDark
-            ? "1px solid rgba(255,255,255,0.12)"
-            : "1px solid rgba(0,0,0,0.08)",
-          background: isDark ? "#1a1a1a" : "#ffffff",
-        },
-        socialButtonsBlockButton: {
-          border: isDark
-            ? "1px solid rgba(255,255,255,0.12)"
-            : "1px solid rgba(0,0,0,0.08)",
-          background: isDark ? "#1a1a1a" : "#ffffff",
-          color: isDark ? "#e0e0e0" : "#333333",
-        },
-        // ── Hide sign-up footer ───────────────────────────────────────────────
-        footerAction: { display: "none" },
-        footer:       { display: "none" },
-      },
-    };
-
     return (
-      <div
-        className={`iphone-frame ${isRTL ? "rtl" : ""} theme-${theme}`}
-      >
-        <div style={{
-          height: "100%",
-          overflowY: "auto",
-          display: "flex",
-          flexDirection: "column",
-          backgroundColor: isDark ? "#000000" : "#F1F6F9",
-          transition: "background-color 0.3s ease",
-        }}>
-          {/* ── Toggle bar: theme + language ─────────────────────────────── */}
-          <header style={{
-            padding: "40px 20px 20px",
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: "10px",
-          }}>
-            <button
-              onClick={toggleTheme}
-              style={{
-                background: isDark ? "rgba(255,255,255,0.08)" : "white",
-                border: isDark ? "1px solid rgba(255,255,255,0.1)" : "none",
-                width: "40px",
-                height: "40px",
-                borderRadius: "50%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: isDark ? "#e0e0e0" : "#333333",
-                boxShadow: isDark ? "none" : "0 4px 12px rgba(0,0,0,0.06)",
-                cursor: "pointer",
-                transition: "all 0.3s ease",
-              }}
-            >
-              {isDark ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-            <button
-              onClick={toggleLang}
-              style={{
-                background: isDark ? "rgba(255,255,255,0.08)" : "white",
-                border: isDark ? "1px solid rgba(255,255,255,0.1)" : "none",
-                width: "40px",
-                height: "40px",
-                borderRadius: "50%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: isDark ? "#e0e0e0" : "#333333",
-                boxShadow: isDark ? "none" : "0 4px 12px rgba(0,0,0,0.06)",
-                cursor: "pointer",
-                fontWeight: "bold",
-                fontSize: "0.9rem",
-                fontFamily: '"Outfit", sans-serif',
-                transition: "all 0.3s ease",
-              }}
-            >
-              {isRTL ? "EN" : "ع"}
-            </button>
-          </header>
-
-          {/* ── Clerk SignIn card ─────────────────────────────────────────── */}
-          <div style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            paddingBottom: "40px",
-            direction: isRTL ? "rtl" : "ltr",
-          }}>
-            <SignIn routing="hash" appearance={clerkSignInAppearance} />
-          </div>
-        </div>
-      </div>
+      <GoogleAuthScreen
+        lang={lang}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        toggleLang={toggleLang}
+      />
     );
   }
 
+  // ── Main authenticated app ─────────────────────────────────────────────────
   return (
-    <div
-      className={`iphone-frame ${lang === "ar" ? "rtl" : ""} theme-${theme}`}
-    >
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={screen}
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 1.02 }}
-          transition={{ duration: 0.25 }}
-          className="page-content"
-        >
-          {renderScreen()}
-        </motion.div>
+    <div className={`app-shell ${lang === "ar" ? "rtl" : ""} theme-${theme}`}>
+      <AnimatePresence>
+        {!isOnline && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              background: "rgba(231, 76, 60, 0.95)",
+              color: "white",
+              textAlign: "center",
+              padding: "10px 16px",
+              fontSize: "14px",
+              fontWeight: "500",
+              zIndex: 99999,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              backdropFilter: "blur(8px)",
+              boxShadow: "0 2px 15px rgba(0,0,0,0.15)",
+              direction: lang === "ar" ? "rtl" : "ltr"
+            }}
+          >
+            <WifiOff size={16} />
+            <span>
+              {lang === "ar" 
+                ? "أنت تعمل بدون اتصال بالإنترنت حالياً. تم حفظ تعديلاتك محلياً وسيتم مزامنتها تلقائياً عند عودة الاتصال."
+                : "You are working offline. Changes saved locally and will sync when connection is restored."}
+            </span>
+          </motion.div>
+        )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {showOnlineBadge && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              background: "rgba(46, 204, 113, 0.95)",
+              color: "white",
+              textAlign: "center",
+              padding: "10px 16px",
+              fontSize: "14px",
+              fontWeight: "500",
+              zIndex: 99999,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              backdropFilter: "blur(8px)",
+              boxShadow: "0 2px 15px rgba(0,0,0,0.15)",
+              direction: lang === "ar" ? "rtl" : "ltr"
+            }}
+          >
+            <Wifi size={16} />
+            <span>
+              {lang === "ar" 
+                ? "تم استعادة الاتصال بالإنترنت! جاري مزامنة التعديلات مع السحابة..."
+                : "Connection restored! Synchronizing local changes with the cloud..."}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Sidebar (tablet + desktop only, hidden on mobile via CSS) ── */}
+      <nav className="sidebar-nav">
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-icon" style={{ background: "transparent" }}>
+            <img src="/controll.app.png" alt="Logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          </div>
+          <span>Control</span>
+        </div>
+        <button className={`sidebar-btn ${screen === "home" ? "active" : ""}`} onClick={() => setScreen("home")}>
+          <Home size={18} />{t.home}
+        </button>
+        <button className={`sidebar-btn ${screen === "explore" ? "active" : ""}`} onClick={() => setScreen("explore")}>
+          <Compass size={18} />{t.explore}
+        </button>
+        <button className={`sidebar-btn ${screen === "iai" ? "active" : ""}`} onClick={() => setScreen("iai")}>
+          <img src="/app2.ai.png" alt="IAI" style={{ width: 18, height: 18, marginRight: 12 }} />IAI
+        </button>
+        <button className={`sidebar-center-btn ${screen === "groups" ? "active" : ""}`} onClick={() => setScreen("groups")}>
+          <Users size={18} />{lang === "ar" ? "المجموعات" : "Groups"}
+        </button>
+        <div className="sidebar-spacer" />
+
+        {/* ── PWA Install Button ── */}
+        {pwaInstallable && (
+          <button
+            className="sidebar-btn"
+            onClick={async () => {
+              const prompt = window.__pwaInstallPrompt;
+              if (prompt) {
+                prompt.prompt();
+                const { outcome } = await prompt.userChoice;
+                if (outcome === 'accepted') {
+                  window.__pwaInstallPrompt = null;
+                  setPwaInstallable(false);
+                }
+              }
+            }}
+            style={{
+              background: 'linear-gradient(135deg, #1D546D, #2980b9)',
+              color: 'white',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: '12px',
+              margin: '4px 8px',
+              padding: '10px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '600',
+              boxShadow: '0 4px 15px rgba(29,84,109,0.4)',
+              animation: 'pulse 2s infinite',
+            }}
+            title={lang === 'ar' ? 'تثبيت التطبيق' : 'Install App'}
+          >
+            <Wifi size={16} />
+            {lang === 'ar' ? 'تثبيت التطبيق' : 'Install App'}
+          </button>
+        )}
+
+        <button className={`sidebar-btn ${screen === "profile" ? "active" : ""}`} onClick={() => setScreen("profile")}>
+          <User size={18} />{t.profile}
+        </button>
+      </nav>
+
+      {/* ── Main content ── */}
+      <AnimatePresence mode="wait">
+        {screen !== "iai" && (
+          <motion.div
+            key={screen}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+            className="page-content"
+          >
+            {renderScreen()}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div 
+        className="page-content" 
+        style={{ 
+          display: screen === "iai" ? "block" : "none",
+          animation: screen === "iai" ? "fadeIn 0.2s ease-out forwards" : "none" 
+        }}
+      >
+        <IAIScreen 
+          lang={lang} 
+          t={t} 
+          theme={theme} 
+          toggleTheme={toggleTheme} 
+          addPinnedNote={addPinnedNote} 
+          pinnedNotes={pinnedNotes}
+          updatePinnedNote={updatePinnedNote}
+        />
+      </div>
 
       {activeMeditation && (
         <MiniPlayer
@@ -1532,55 +1811,41 @@ export default function App({
           lang={lang}
           item={activeMeditation}
           onClose={() => setActiveMeditation(null)}
-          onComplete={() => recordMeditationCompletion(activeMeditation)}
+          onComplete={() => {
+            recordMeditationCompletion(activeMeditation);
+            sendLocalNotification(
+              lang === "en" ? "🧘 Session Complete!" : "🧘 انتهت الجلسة!",
+              lang === "en"
+                ? `"${activeMeditation.title[lang] || activeMeditation.title.en}" has finished. Great work!`
+                : `انتهت جلسة "${activeMeditation.title[lang] || activeMeditation.title.ar}". عمل رائع!`
+            );
+          }}
         />
       )}
 
+      {/* ── Bottom nav (mobile only, hidden ≥768px via CSS) ── */}
       <nav className="bottom-nav">
-        <button
-          onClick={() => setScreen("home")}
-          className={screen === "home" ? "active" : ""}
-        >
-          <Home size={24} />
-          <span>{t.home}</span>
+        <button onClick={() => setScreen("home")} className={screen === "home" ? "active" : ""}>
+          <Home size={22} /><span>{t.home}</span>
         </button>
-        <button
-          onClick={() => setScreen("explore")}
-          className={screen === "explore" ? "active" : ""}
-        >
-          <Compass size={24} />
-          <span>{t.explore}</span>
+        <button onClick={() => setScreen("explore")} className={screen === "explore" ? "active" : ""}>
+          <Compass size={22} /><span>{t.explore}</span>
         </button>
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            justifyContent: "center",
-            marginTop: "-40px",
-          }}
-        >
-          <button className="add-btn" onClick={() => setScreen("groups")}>
-            <Users size={32} />
-          </button>
+        <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center" }}>
+          <button className="add-btn" onClick={() => setScreen("groups")}><Users size={28} /></button>
         </div>
-        <button
-          onClick={() => setScreen("details")}
-          className={screen === "details" ? "active" : ""}
-        >
-          <ClipboardList size={24} />
-          <span>{t.journey}</span>
+        <button onClick={() => setScreen("iai")} className={screen === "iai" ? "active" : ""}>
+          <img src="/app2.ai.png" alt="IAI" style={{ width: 22, height: 22 }} /><span>IAI</span>
         </button>
-        <button
-          onClick={() => setScreen("profile")}
-          className={screen === "profile" ? "active" : ""}
-        >
-          <User size={24} />
-          <span>{t.profile}</span>
+        <button onClick={() => setScreen("profile")} className={screen === "profile" ? "active" : ""}>
+          <User size={22} /><span>{t.profile}</span>
         </button>
       </nav>
     </div>
   );
 }
+
+
 
 function AuthScreen({ t, lang, onLogin, theme, toggleTheme }) {
   const [step, setStep] = useState(1);
@@ -1711,7 +1976,7 @@ function AuthScreen({ t, lang, onLogin, theme, toggleTheme }) {
           }}
         >
           <img
-            src={theme === "dark" ? "/logo_dark.png" : "/logo.png"}
+            src="/controll.app.png"
             alt="Control Logo"
             style={{
               width: "380px",
@@ -1820,7 +2085,7 @@ function AuthScreen({ t, lang, onLogin, theme, toggleTheme }) {
                 padding: "18px",
                 borderRadius: "20px",
                 border: "none",
-                background: "#629FAD",
+                background: "var(--primary-light)",
                 color: "white",
                 fontWeight: 700,
                 fontSize: "1.1rem",
@@ -1960,7 +2225,7 @@ function AuthScreen({ t, lang, onLogin, theme, toggleTheme }) {
                 style={{
                   background: "none",
                   border: "none",
-                  color: "#629FAD",
+                  color: "var(--primary-light)",
                   fontWeight: 700,
                   cursor: "pointer",
                   fontSize: "0.9rem",
@@ -1998,6 +2263,7 @@ function HomeScreen({
   setPinnedNotes,
   addPinnedNote,
   deletePinnedNote,
+  updatePinnedNote,
   setActiveMeditation,
   saveJournal,
   dailyHabit,
@@ -2042,6 +2308,7 @@ function HomeScreen({
       n.id === id ? { ...n, title: newTitle } : n,
     );
     setPinnedNotes(updated);
+    updatePinnedNote(id, { title: newTitle });
   };
 
   const updateNoteContent = (id, newContent) => {
@@ -2049,6 +2316,7 @@ function HomeScreen({
       n.id === id ? { ...n, content: newContent } : n,
     );
     setPinnedNotes(updated);
+    updatePinnedNote(id, { content: newContent });
   };
 
   const updateNoteImage = (id, imageUrl) => {
@@ -2056,6 +2324,7 @@ function HomeScreen({
       n.id === id ? { ...n, image: imageUrl, hasImage: !!imageUrl } : n,
     );
     setPinnedNotes(updated);
+    updatePinnedNote(id, { image: imageUrl, hasImage: !!imageUrl });
   };
 
   const updateNoteColor = (id, color) => {
@@ -2063,6 +2332,7 @@ function HomeScreen({
       n.id === id ? { ...n, color: color } : n,
     );
     setPinnedNotes(updated);
+    updatePinnedNote(id, { color });
   };
 
   const updateNoteLink = (id, link) => {
@@ -2070,11 +2340,12 @@ function HomeScreen({
       n.id === id ? { ...n, link: link } : n,
     );
     setPinnedNotes(updated);
+    updatePinnedNote(id, { link });
   };
 
-  const handleAddNote = () => {
-    const newId = addPinnedNote();
-    setExpandedNoteId(newId);
+  const handleAddNote = async () => {
+    const newId = await addPinnedNote();
+    if (newId) setExpandedNoteId(newId);
   };
 
   const handleImageUpload = (id, e) => {
@@ -2184,6 +2455,15 @@ function HomeScreen({
         // Show custom notification modal
         setShowAlarmNotification(true);
 
+        // Fire enhanced local notification (sound + browser popup + in-app)
+        sendLocalNotification(
+          lang === "en" ? "Journal Reminder 📝" : "تذكير بالمذكرات 📝",
+          journalTitle ||
+            (lang === "en"
+              ? "Time to write in your journal!"
+              : "حان وقت الكتابة في مذكراتك!"),
+        );
+
         // Request notification permission if not granted
         if (Notification.permission === "granted") {
           new Notification(
@@ -2194,8 +2474,8 @@ function HomeScreen({
                 (lang === "en"
                   ? "Time to write in your journal!"
                   : "حان وقت الكتابة في مذكراتك!"),
-              icon: "/logo.png",
-              badge: "/logo.png",
+              icon: "/controll.app.png",
+              badge: "/controll.app.png",
             },
           );
         } else if (Notification.permission !== "denied") {
@@ -2209,8 +2489,8 @@ function HomeScreen({
                     (lang === "en"
                       ? "Time to write in your journal!"
                       : "حان وقت الكتابة في مذكراتك!"),
-                  icon: "/logo.png",
-                  badge: "/logo.png",
+                  icon: "/controll.app.png",
+                  badge: "/controll.app.png",
                 },
               );
             }
@@ -2350,7 +2630,7 @@ function HomeScreen({
                   borderRadius: "15px",
                   fontSize: "0.8rem",
                   fontWeight: 700,
-                  color: "#629FAD",
+                  color: "var(--primary-light)",
                   border: "1.5px solid rgba(98, 159, 173, 0.3)",
                   boxShadow: "0 4px 12px rgba(98, 159, 173, 0.15)",
                 }}
@@ -2581,10 +2861,10 @@ function HomeScreen({
                       alignItems: "center",
                       gap: "4px",
                       fontSize: "0.7rem",
-                      color: note.color,
+                      color: "inherit",
                       textDecoration: "underline",
                       marginTop: "5px",
-                      background: "rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.25)",
                       padding: "2px 6px",
                       borderRadius: "4px",
                       width: "fit-content",
@@ -3180,7 +3460,7 @@ function HomeScreen({
               exit={{ scale: 0.8, y: 50 }}
               onClick={(e) => e.stopPropagation()}
               style={{
-                background: "linear-gradient(135deg, #629FAD 0%, #5F9598 100%)",
+                background: "linear-gradient(135deg, var(--primary-light) 0%, var(--accent) 100%)",
                 borderRadius: "30px",
                 padding: "40px 30px",
                 maxWidth: "400px",
@@ -3226,7 +3506,7 @@ function HomeScreen({
                 }}
                 style={{
                   background: "white",
-                  color: "#629FAD",
+                  color: "var(--primary-light)",
                   border: "none",
                   borderRadius: "20px",
                   padding: "15px 40px",
@@ -3267,6 +3547,20 @@ function HomeScreen({
           20%, 40% { transform: rotate(10deg); }
         }
       `}</style>
+
+      {/* ── Floating Quick Note FAB ─────────────────────────────────────── */}
+      <motion.button
+        className="quick-note-fab"
+        onClick={handleAddNote}
+        whileHover={{ scale: 1.12 }}
+        whileTap={{ scale: 0.92 }}
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 300, delay: 0.4 }}
+        title={lang === "ar" ? "ملاحظة سريعة" : "Quick Note"}
+      >
+        <PlusCircle size={26} />
+      </motion.button>
     </div>
   );
 }
@@ -3807,7 +4101,7 @@ function SharedTasksScreen({
           className="nav-icon-btn"
           onClick={() => setShowAdd(!showAdd)}
           style={{
-            background: "#629FAD",
+            background: "var(--primary-light)",
             color: "white",
             borderRadius: "15px",
             width: "45px",
@@ -3875,7 +4169,7 @@ function SharedTasksScreen({
             animate={{ width: `${progressPercent}%` }}
             style={{
               height: "100%",
-              background: "linear-gradient(90deg, #629FAD, #5F9598)",
+              background: "linear-gradient(90deg, var(--primary-light), var(--accent))",
               borderRadius: "10px",
             }}
           />
@@ -3974,7 +4268,7 @@ function SharedTasksScreen({
         <div
           style={{
             background: "rgba(98, 159, 173, 0.1)",
-            color: "#629FAD",
+            color: "var(--primary-light)",
             padding: "4px 12px",
             borderRadius: "10px",
             fontSize: "0.75rem",
@@ -4033,7 +4327,7 @@ function SharedTasksScreen({
                   task.status === "completed"
                     ? "rgba(95, 149, 152, 0.1)"
                     : "rgba(98, 159, 173, 0.1)",
-                color: task.status === "completed" ? "#5F9598" : "#1D546D",
+                color: task.status === "completed" ? "var(--accent)" : "var(--primary)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -4077,7 +4371,7 @@ function SharedTasksScreen({
                       width: "8px",
                       height: "8px",
                       borderRadius: "50%",
-                      backgroundColor: "#629FAD",
+                      backgroundColor: "var(--primary-light)",
                     }}
                   />
                 )}
@@ -4122,7 +4416,7 @@ function SharedTasksScreen({
                 alignItems: "center",
                 justifyContent: "center",
                 background:
-                  task.status === "completed" ? "#5F9598" : "rgba(0,0,0,0.03)",
+                  task.status === "completed" ? "var(--accent)" : "rgba(0,0,0,0.03)",
                 color: "white",
                 transition: "all 0.3s ease",
               }}
@@ -4207,7 +4501,7 @@ function ExploreScreen({
               ...editInputStyle(lang),
               paddingLeft: lang === "ar" ? "12px" : "40px",
               paddingRight: lang === "ar" ? "40px" : "12px",
-              backgroundColor: "var(--card-bg, rgba(255,255,255,0.05))",
+              backgroundColor: "var(--bg-card)",
             }}
           />
           <Search
@@ -4315,7 +4609,7 @@ function ExploreScreen({
               backgroundColor:
                 selectedCategory === cat.id
                   ? "#D35400"
-                  : "var(--card-bg, white)",
+                  : "var(--bg-card)",
               color: selectedCategory === cat.id ? "white" : "var(--text-main)",
               display: "flex",
               alignItems: "center",
@@ -4354,7 +4648,7 @@ function ExploreScreen({
             style={{
               padding: "20px",
               borderRadius: "28px",
-              backgroundColor: "var(--card-bg, white)",
+              backgroundColor: "var(--bg-card)",
               display: "flex",
               flexDirection: "column",
               gap: "15px",
@@ -4503,7 +4797,7 @@ function ExploreScreen({
                   justifyContent: "center",
                   fontSize: "0.7rem",
                   fontWeight: 800,
-                  color: "#1D546D",
+                  color: "var(--primary)",
                 }}
               >
                 {["SJ", "MK", "AY", "RL"][i - 1]}
@@ -4514,7 +4808,7 @@ function ExploreScreen({
                 width: "32px",
                 height: "32px",
                 borderRadius: "10px",
-                background: "#F1F6F9",
+                background: "var(--bg-app)",
                 border: "2px solid white",
                 marginLeft: "-10px",
                 display: "flex",
@@ -4532,7 +4826,7 @@ function ExploreScreen({
             style={{
               margin: 0,
               fontSize: "0.95rem",
-              color: "#1D546D",
+              color: "var(--primary)",
               fontWeight: 600,
             }}
           >
@@ -4555,7 +4849,7 @@ function ExploreScreen({
                 style={{
                   padding: "6px 12px",
                   background: "rgba(98, 159, 173, 0.08)",
-                  color: "#629FAD",
+                  color: "var(--primary-light)",
                   borderRadius: "10px",
                   fontSize: "0.8rem",
                   fontWeight: 700,
@@ -4617,7 +4911,7 @@ function NotificationScreen({
             style={{
               background: "none",
               border: "none",
-              color: "#629FAD",
+              color: "var(--primary-light)",
               fontWeight: 700,
               cursor: "pointer",
               fontSize: "0.9rem",
@@ -4649,10 +4943,10 @@ function NotificationScreen({
               style={{
                 padding: "20px",
                 borderRadius: "24px",
-                backgroundColor: n.read ? "var(--card-bg, white)" : "#F0F7F8",
+                backgroundColor: n.read ? "var(--bg-card)" : "var(--primary-pale)",
                 border: n.read
-                  ? "1px solid rgba(0,0,0,0.02)"
-                  : "1px solid rgba(98, 159, 173, 0.2)",
+                  ? "1px solid var(--border)"
+                  : "1px solid var(--primary-light)",
                 position: "relative",
                 display: "flex",
                 gap: "15px",
@@ -4725,7 +5019,7 @@ function NotificationScreen({
                     left: lang === "ar" ? "15px" : "auto",
                     width: "8px",
                     height: "8px",
-                    background: "#629FAD",
+                    background: "var(--primary-light)",
                     borderRadius: "50%",
                   }}
                 />
@@ -4798,7 +5092,7 @@ function AnalyticsScreen({
           style={{
             padding: "20px",
             textAlign: "center",
-            background: "linear-gradient(135deg, #1D546D 0%, #000000 100%)",
+            background: "linear-gradient(135deg, var(--primary) 0%, #000000 100%)",
             color: "white",
           }}
         >
@@ -4965,7 +5259,7 @@ function MiniPlayer({ item, t, lang, onClose, onComplete }) {
           width: "50px",
           height: "50px",
           borderRadius: "15px",
-          background: item.color || "#629FAD",
+          background: item.color || "var(--primary-light)",
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
@@ -5009,7 +5303,7 @@ function MiniPlayer({ item, t, lang, onClose, onComplete }) {
             <motion.div
               style={{
                 height: "100%",
-                background: "#629FAD",
+                background: "var(--primary-light)",
                 width: `${progress}%`,
               }}
             />
@@ -5034,7 +5328,7 @@ function MiniPlayer({ item, t, lang, onClose, onComplete }) {
             height: "40px",
             borderRadius: "50%",
             border: "none",
-            background: "#629FAD",
+            background: "var(--primary-light)",
             color: "white",
             display: "flex",
             alignItems: "center",
@@ -5550,7 +5844,7 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
             size={24}
             style={{
               transform: lang === "en" ? "none" : "rotate(180deg)",
-              color: "#1D546D",
+              color: "var(--primary)",
             }}
           />
         </button>
@@ -5559,7 +5853,7 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
             fontSize: "1.8rem",
             fontWeight: 900,
             margin: 0,
-            color: "#1D546D",
+            color: "var(--primary)",
           }}
         >
           {lang === "en" ? "Archive" : "الأرشيف"}
@@ -5571,7 +5865,7 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
       <div
         style={{
           padding: "25px",
-          backgroundColor: "#1D546D",
+          backgroundColor: "var(--primary)",
           borderRadius: "32px",
           marginBottom: "30px",
           boxShadow: "0 10px 30px rgba(29, 84, 109, 0.2)",
@@ -5684,7 +5978,7 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
                 <div
                   style={{
                     fontSize: "0.85rem",
-                    color: "#629FAD",
+                    color: "var(--primary-light)",
                     fontWeight: 800,
                   }}
                 >
@@ -5695,7 +5989,7 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
                     fontSize: "0.75rem",
                     color: PALETTE.GRAY,
                     fontWeight: 700,
-                    backgroundColor: "#F1F6F9",
+                    backgroundColor: "var(--bg-app)",
                     padding: "4px 10px",
                     borderRadius: "8px",
                   }}
@@ -5776,7 +6070,7 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
                   <div
                     style={{
                       fontSize: "1rem",
-                      color: "#629FAD",
+                      color: "var(--primary-light)",
                       fontWeight: 800,
                       marginBottom: "4px",
                     }}
@@ -5796,7 +6090,7 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
                 <button
                   onClick={() => setExpandedEntry(null)}
                   style={{
-                    background: "#F1F6F9",
+                    background: "var(--bg-app)",
                     border: "none",
                     cursor: "pointer",
                     padding: "10px",
@@ -5804,7 +6098,7 @@ function AllJournalsScreen({ t, lang, setScreen, journals }) {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    color: "#1D546D",
+                    color: "var(--primary)",
                   }}
                 >
                   <X size={20} />

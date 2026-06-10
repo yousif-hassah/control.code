@@ -16,6 +16,7 @@ import {
   Check,
   MoreVertical,
   CheckCircle,
+  Award,
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
@@ -35,7 +36,11 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   const [isAdmin, setIsAdmin] = useState(group.role === "admin");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-
+  const [showUploadMenu, setShowUploadMenu] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isInstruction, setIsInstruction] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
   const fileInputRef = useRef(null);
   const chatEndRef = useRef(null);
 
@@ -50,7 +55,12 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
       )
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "group_messages" },
+        { 
+          event: "INSERT", 
+          schema: "public", 
+          table: "group_messages",
+          filter: `group_id=eq.${group.id}` 
+        },
         async (p) => {
           // Fetch the profile for the new message to get the name
           const { data: profile } = await supabase
@@ -64,7 +74,29 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
             profiles: profile,
           };
 
-          setMessages((prev) => [...prev, enrichedMessage]);
+          setMessages((prev) => {
+            // Check if the message is already present by id
+            const alreadyExists = prev.some((m) => m.id === p.new.id);
+            if (alreadyExists) return prev;
+
+            // Check if there is an optimistic temp message matching this text and user
+            const tempMsgIdx = prev.findIndex(
+              (m) =>
+                m.id &&
+                m.id.toString().startsWith("temp-") &&
+                m.message === p.new.message &&
+                m.user_id === p.new.user_id
+            );
+
+            if (tempMsgIdx !== -1) {
+              // Replace the temp message inline to keep order and prevent double render
+              return prev.map((m, idx) =>
+                idx === tempMsgIdx ? enrichedMessage : m
+              );
+            }
+
+            return [...prev, enrichedMessage];
+          });
           scrollToBottom();
         },
       )
@@ -148,7 +180,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     const userIds = mems.map((m) => m.user_id);
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("id, name, image_url")
+      .select("id, name, image_url, fcm_token")
       .in("id", userIds);
 
     // Step 3: Merge
@@ -268,8 +300,34 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     }
   };
 
+  // ── Realtime Notification Bus (works without FCM/HTTPS) ──────────────
+  // Inserts a row into group_notifications — Supabase Realtime broadcasts
+  // it instantly to all connected clients who are listening.
+  const sendRealtimeNotification = async (title, body, type = "system", recipientId = null) => {
+    try {
+      const { error } = await supabase.from("group_notifications").insert([{
+        group_id: group.id,
+        sender_id: user.uid,
+        recipient_id: recipientId,  // null = all members
+        title,
+        body,
+        type,
+      }]);
+      if (error) {
+        console.error("❌ Realtime notification insert error:", error.message);
+      } else {
+        console.log("✅ Realtime notification sent:", title);
+      }
+    } catch (err) {
+      console.error("❌ Realtime notification failed:", err.message);
+    }
+  };
+
   const createTask = async () => {
-    if (!newTaskTitle.trim()) return;
+    const taskTitle = newTaskTitle.trim();
+    const targetMember = selectedMember;
+
+    if (!taskTitle) return;
     if (!isAdmin) {
       alert(
         lang === "ar"
@@ -283,14 +341,36 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
       const { error } = await supabase.from("group_tasks").insert([
         {
           group_id: group.id,
-          title: newTaskTitle.trim(),
-          assigned_to: selectedMember || null,
+          title: taskTitle,
+          assigned_to: targetMember || null,
           created_by: user.uid,
           status: "pending",
         },
       ]);
       if (error) throw error;
-      await logActivity("task_created", newTaskTitle);
+      await logActivity("task_created", taskTitle);
+      
+      // Send Realtime notification to assigned member or all members
+      if (targetMember) {
+        await sendRealtimeNotification(
+          lang === "ar" ? `📋 مهمة جديدة في ${group.name}` : `📋 New Task in ${group.name}`,
+          lang === "ar"
+            ? `تم تكليفك بمهمة جديدة: "${taskTitle}"`
+            : `You've been assigned: "${taskTitle}"`,
+          "task",
+          targetMember  // send only to the assigned user
+        );
+      } else {
+        await sendRealtimeNotification(
+          lang === "ar" ? `📋 مهمة جديدة في ${group.name}` : `📋 New Task in ${group.name}`,
+          lang === "ar"
+            ? `مهمة جديدة للجميع: "${taskTitle}"`
+            : `New task for everyone: "${taskTitle}"`,
+          "task",
+          null  // broadcast to all members
+        );
+      }
+
       setNewTaskTitle("");
       setSelectedMember("");
       fetchTasks();
@@ -342,23 +422,39 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     }
 
     try {
+      const updatePayload = {
+        status: newStatus,
+        completed_at: newStatus === "completed" ? new Date().toISOString() : null,
+        completed_by: newStatus === "completed" ? user.uid : null,
+      };
+
       const { error } = await supabase
         .from("group_tasks")
-        .update({
-          status: newStatus,
-          completed_at:
-            newStatus === "completed" ? new Date().toISOString() : null,
-          completed_by: newStatus === "completed" ? user.uid : null,
-        })
+        .update(updatePayload)
         .eq("id", task.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error("Task update DB error:", JSON.stringify(error));
+        throw error;
+      }
 
       // Log activity in background (don't wait for it)
       logActivity(
         newStatus === "completed" ? "task_completed" : "task_reopened",
         task.title,
       );
+
+      // Send Realtime notification when task is completed
+      if (newStatus === "completed") {
+        await sendRealtimeNotification(
+          lang === "ar" ? `✅ مهمة مكتملة في ${group.name}` : `✅ Task Completed in ${group.name}`,
+          lang === "ar"
+            ? `قام ${user.name} بإكمال المهمة: "${task.title}"`
+            : `${user.name} completed: "${task.title}"`,
+          "task_complete",
+          null  // notify all group members
+        );
+      }
     } catch (e) {
       console.error("Update Task Error:", e);
       // REVERT optimistic update on error
@@ -408,9 +504,12 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
           group_id: group.id,
           user_id: user.uid,
           message: messageText,
+          // is_instruction: isInstruction, // Removed to prevent error if column missing
         }])
         .select("*")
         .single();
+      
+      setIsInstruction(false);
 
       if (error) {
         console.error("Message Send Error:", error);
@@ -425,13 +524,26 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
         return;
       }
 
-      // Replace optimistic message with confirmed server message
-      setMessages((prev) =>
-        prev.map((m) => (m.id === tempId ? data : m))
-      );
+      // Replace optimistic message with confirmed server message (if not already handled by realtime)
+      setMessages((prev) => {
+        const alreadyHasRealMessage = prev.some((m) => m.id === data.id);
+        if (alreadyHasRealMessage) {
+          return prev.filter((m) => m.id !== tempId);
+        }
+        return prev.map((m) => (m.id === tempId ? data : m));
+      });
 
       // Log activity in background
       logActivity("message_sent", messageText.substring(0, 50));
+      
+      // Send Realtime notification to all other group members
+      await sendRealtimeNotification(
+        `💬 ${group.name}`,
+        `${user.name}: ${messageText.substring(0, 100)}`,
+        "message",
+        null  // broadcast to all members (filtered on receiver side by sender_id)
+      );
+
       scrollToBottom();
     } catch (e) {
       console.error("Unexpected message error:", e);
@@ -445,126 +557,137 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     }
   };
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = e => audioChunksRef.current.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const file = new File([audioBlob], `voice_${Date.now()}.webm`, { type: "audio/webm" });
+        uploadFile(file, "voice");
+      };
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (e) { alert("Mic error"); }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const uploadFile = async (file, type = "document") => {
     setUploading(true);
     try {
       const path = `groups/${group.id}/${Date.now()}_${file.name}`;
       await supabase.storage.from("group-files").upload(path, file);
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("group-files").getPublicUrl(path);
-      await supabase.from("group_files").insert([
-        {
-          group_id: group.id,
-          user_id: user.uid,
-          file_name: file.name,
-          file_url: publicUrl,
-          file_type: file.type.startsWith("image/") ? "image" : "document",
-        },
-      ]);
-      await logActivity("file_uploaded", file.name);
-      await supabase.from("group_messages").insert([
-        {
-          group_id: group.id,
-          user_id: user.uid,
-          message: `Shared file: ${file.name}`,
-          file_url: publicUrl,
-          file_name: file.name,
-        },
-      ]);
+      const { data: { publicUrl } } = supabase.storage.from("group-files").getPublicUrl(path);
+      
+      await supabase.from("group_messages").insert([{
+        group_id: group.id,
+        user_id: user.uid,
+        message: type === "voice" ? "Voice message" : `Shared ${type}: ${file.name}`,
+        file_url: publicUrl,
+        file_name: file.name,
+        file_type: type
+      }]);
+      
       fetchInitialData();
-    } catch (err) {
-      alert("Upload failed");
-    } finally {
-      setUploading(false);
-    }
+    } catch (err) { alert("Upload failed"); }
+    finally { setUploading(false); setShowUploadMenu(false); }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) uploadFile(file, file.type.startsWith("image/") ? "image" : "document");
   };
 
   const styles = {
     screen: {
-      position: "fixed",
-      top: 0,
-      left: 0,
-      bottom: 0,
-      right: 0,
-      background: "#f8f9fa",
-      zIndex: 2000,
       display: "flex",
       flexDirection: "column",
+      minHeight: "100%",
+      background: "var(--bg-app)",
+      position: "relative",
     },
     header: {
-      padding: "16px 20px",
+      padding: "16px 0",
       display: "flex",
       alignItems: "center",
       gap: "14px",
-      background: "rgba(255, 255, 255, 0.8)",
-      backdropFilter: "blur(20px)",
-      WebkitBackdropFilter: "blur(20px)",
-      borderBottom: "1px solid rgba(0,0,0,0.03)",
-      sticky: "top",
+      background: "var(--bg-app)",
+      borderBottom: "1px solid var(--border)",
+      position: "sticky",
+      top: 0,
+      zIndex: 100,
     },
     tabs: {
       display: "flex",
-      background: "rgba(255, 255, 255, 0.5)",
-      backdropFilter: "blur(10px)",
-      padding: "6px",
-      margin: "0 16px 12px",
-      borderRadius: "20px",
-      border: "1px solid rgba(0,0,0,0.03)",
+      background: "var(--bg-card)",
+      padding: "4px",
+      margin: "16px 0",
+      borderRadius: "var(--radius-lg)",
+      border: "1px solid var(--border)",
+      boxShadow: "var(--shadow)",
     },
     tabBtn: (active) => ({
       flex: 1,
       padding: "10px 4px",
       border: "none",
-      borderRadius: "16px",
-      background: active ? "white" : "transparent",
-      color: active ? "#629FAD" : "#7b8a91",
-      fontSize: "11px",
-      fontWeight: "800",
+      borderRadius: "var(--radius-md)",
+      background: active ? "var(--primary-pale)" : "transparent",
+      color: active ? "var(--primary)" : "var(--text-dim)",
+      fontSize: "12px",
+      fontWeight: "700",
       display: "flex",
       flexDirection: "column",
       alignItems: "center",
       gap: "4px",
-      position: "relative",
-      transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
-      boxShadow: active ? "0 4px 12px rgba(0,0,0,0.05)" : "none",
+      cursor: "pointer",
+      transition: "var(--transition)",
     }),
     content: {
       flex: 1,
-      overflowY: "auto",
-      padding: "8px 20px",
       paddingBottom: "140px",
     },
     footer: {
-      position: "absolute",
-      bottom: "24px",
+      position: "fixed",
+      bottom: "12px",
       left: "16px",
       right: "16px",
-      padding: "14px",
-      background: "rgba(255, 255, 255, 0.95)",
+      maxWidth: "calc(860px - 32px)",
+      margin: "0 auto",
+      padding: "12px",
+      background: "var(--bg-card)",
       backdropFilter: "blur(15px)",
-      borderRadius: "26px",
-      boxShadow: "0 10px 40px rgba(0,0,0,0.08)",
-      border: "1px solid rgba(255, 255, 255, 0.5)",
+      WebkitBackdropFilter: "blur(15px)",
+      borderRadius: "var(--radius-lg)",
+      boxShadow: "var(--shadow-md)",
+      border: "1px solid var(--border)",
+      zIndex: 1000,
     },
     input: {
       flex: 1,
-      padding: "14px 18px",
-      borderRadius: "18px",
-      border: "1px solid rgba(0,0,0,0.05)",
-      background: "#f9fbff",
+      padding: "12px 16px",
+      borderRadius: "var(--radius-md)",
+      border: "1px solid var(--border)",
+      background: "var(--bg-app)",
       fontSize: "14px",
-      fontWeight: "500",
+      color: "var(--text-main)",
       outline: "none",
-      transition: "all 0.3s ease",
     },
     inputGroup: {
       display: "flex",
       alignItems: "center",
-      gap: "12px",
+      gap: "10px",
       width: "100%",
+      maxWidth: "900px",
+      margin: "0 auto",
     },
   };
 
@@ -573,19 +696,21 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
       <header style={styles.header}>
         <button
           onClick={onClose}
-          style={{ background: "none", border: "none", padding: "4px" }}
+          className="nav-icon-btn"
+          style={{ padding: "0" }}
         >
-          <ChevronLeft size={24} />
+          <ChevronLeft size={22} />
         </button>
         <div style={{ flex: 1 }}>
-          <h2 style={{ margin: 0, fontSize: "16px", fontWeight: "bold" }}>
+          <h2 style={{ fontSize: "18px", fontWeight: "800", margin: 0, color: "var(--text-main)" }}>
             {group.name}
           </h2>
-          <span
-            style={{ fontSize: "10px", color: "#629FAD", fontWeight: "600" }}
-          >
-            {group.code}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4ade80" }} />
+            <span style={{ fontSize: "11px", color: "var(--text-dim)", fontWeight: "600" }}>
+              {members.length} {lang === "ar" ? "أعضاء" : "members"}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -619,7 +744,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                   bottom: "2px",
                   width: "20px",
                   height: "3px",
-                  background: "#629FAD",
+                  background: "var(--primary-light)",
                   borderRadius: "10px",
                 }}
               />
@@ -656,7 +781,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                     style={{
                       fontSize: "11px",
                       fontWeight: "800",
-                      color: "#629FAD",
+                      color: "var(--primary-light)",
                       letterSpacing: "0.5px",
                       textTransform: "uppercase",
                     }}
@@ -694,7 +819,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                     }}
                     style={{
                       height: "100%",
-                      background: "linear-gradient(90deg, #629FAD, #8DBBC5)",
+                      background: "linear-gradient(90deg, var(--primary-light), #8DBBC5)",
                       borderRadius: "10px",
                       boxShadow: "2px 0 10px rgba(98, 159, 173, 0.4)",
                     }}
@@ -758,7 +883,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                         borderRadius: "26px",
                         border:
                           isMyTask && !isCompleted
-                            ? "1.5px solid #629FAD"
+                            ? "1.5px solid var(--primary-light)"
                             : "1px solid rgba(255,255,255,0.8)",
                         display: "flex",
                         alignItems: "center",
@@ -782,7 +907,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                             left: 0,
                             bottom: 0,
                             width: "4px",
-                            background: "#629FAD",
+                            background: "var(--primary-light)",
                             opacity: 0.5,
                           }}
                         />
@@ -790,7 +915,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
 
                       <div
                         style={{
-                          color: isCompleted ? "#629FAD" : "#ddd",
+                          color: isCompleted ? "var(--primary-light)" : "#ddd",
                           transition: "color 0.3s",
                         }}
                       >
@@ -831,9 +956,9 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                                 alignItems: "center",
                                 gap: "4px",
                                 padding: "2px 8px",
-                                background: isMyTask ? "#629FAD15" : "#f5f5f5",
+                                background: isMyTask ? "var(--primary-light)15" : "#f5f5f5",
                                 borderRadius: "8px",
-                                color: isMyTask ? "#629FAD" : "#777",
+                                color: isMyTask ? "var(--primary-light)" : "#777",
                               }}
                             >
                               <User size={10} />
@@ -853,7 +978,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                             <div
                               style={{
                                 fontSize: "10px",
-                                color: "#629FAD",
+                                color: "var(--primary-light)",
                                 fontWeight: "800",
                                 display: "flex",
                                 alignItems: "center",
@@ -904,14 +1029,14 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                             width: "24px",
                             height: "24px",
                             borderRadius: "50%",
-                            border: "2px solid #629FAD",
+                            border: "2px solid var(--primary-light)",
                             opacity: 0.3,
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
                           }}
                         >
-                          <Check size={12} color="#629FAD" />
+                          <Check size={12} color="var(--primary-light)" />
                         </div>
                       )}
                       {!canComplete && !isCompleted && (
@@ -952,7 +1077,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                       style={{
                         fontSize: "10px",
                         fontWeight: "800",
-                        color: "#629FAD",
+                        color: "var(--primary-light)",
                         marginBottom: "4px",
                         [lang === "ar" ? "marginRight" : "marginLeft"]: "12px",
                       }}
@@ -966,11 +1091,15 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                       borderRadius: isMe
                         ? "18px 18px 4px 18px"
                         : "18px 18px 18px 4px",
-                      background: isMe ? "#629FAD" : "#fff",
-                      color: isMe ? "white" : "#333",
+                      background: m.is_instruction 
+                        ? "rgba(255, 215, 0, 0.15)" 
+                        : (isMe ? "var(--primary)" : "var(--bg-card)"),
+                      color: isMe ? "white" : "var(--text-main)",
                       fontSize: "14px",
-                      boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
-                      border: isMe ? "none" : "1px solid #f0f0f0",
+                      boxShadow: "var(--shadow)",
+                      border: m.is_instruction 
+                        ? "1.5px solid #FFD700" 
+                        : "1px solid var(--border)",
                     }}
                   >
                     {m.file_url ? (
@@ -1067,7 +1196,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                     margin: "0 auto 8px",
                   }}
                 >
-                  <FileText size={20} color="#629FAD" />
+                  <FileText size={20} color="var(--primary-light)" />
                 </div>
                 <p
                   style={{
@@ -1128,7 +1257,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                   <span
                     style={{
                       fontSize: "11px",
-                      color: "#629FAD",
+                      color: "var(--primary-light)",
                       fontWeight: "700",
                     }}
                   >
@@ -1162,7 +1291,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                         borderRadius: "16px",
                         marginBottom: "8px",
                         border: isMe
-                          ? "2px solid #629FAD"
+                          ? "2px solid var(--primary-light)"
                           : isTopPerformer
                             ? "2px solid #FFD700"
                             : "1px solid #f0f0f0",
@@ -1203,7 +1332,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                           borderRadius: "50%",
                           background: stat.image_url
                             ? `url(${stat.image_url})`
-                            : "#629FAD",
+                            : "var(--primary-light)",
                           backgroundSize: "cover",
                           backgroundPosition: "center",
                           display: "flex",
@@ -1309,7 +1438,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                           style={{
                             fontSize: "16px",
                             fontWeight: "900",
-                            color: "#629FAD",
+                            color: "var(--primary-light)",
                           }}
                         >
                           {stat.tasks_completed}
@@ -1433,7 +1562,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      color: "#629FAD",
+                      color: "var(--primary-light)",
                       boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
                       border: "1px solid rgba(0,0,0,0.02)",
                       flexShrink: 0,
@@ -1460,7 +1589,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                         style={{
                           fontSize: "12px",
                           fontWeight: "800",
-                          color: "#629FAD",
+                          color: "var(--primary-light)",
                           textTransform: "uppercase",
                           letterSpacing: "0.5px",
                         }}
@@ -1527,7 +1656,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
                 onClick={createTask}
                 disabled={loading}
                 style={{
-                  background: "linear-gradient(135deg, #629FAD, #4A8999)",
+                  background: "linear-gradient(135deg, var(--primary-light), #4A8999)",
                   color: "white",
                   width: "48px",
                   height: "48px",
@@ -1614,69 +1743,121 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
           </div>
         )}
         {activeTab === "chat" && (
-          <div style={styles.inputGroup}>
-            {/* Attachment Button on the Right side (Start of RTL) */}
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={() => fileInputRef.current.click()}
-              style={{
-                background: "#f0f4f7",
-                border: "none",
-                borderRadius: "15px",
-                width: "42px",
-                height: "42px",
-                color: "#629FAD",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
-              }}
-            >
-              <Paperclip size={20} />
-            </motion.button>
+          <div style={{ position: "relative" }}>
+            <AnimatePresence>
+              {showUploadMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                  style={{
+                    position: "absolute",
+                    bottom: "60px",
+                    left: lang === "ar" ? "auto" : "0",
+                    right: lang === "ar" ? "0" : "auto",
+                    background: "var(--bg-card)",
+                    borderRadius: "16px",
+                    padding: "8px",
+                    boxShadow: "var(--shadow-md)",
+                    display: "flex",
+                    gap: "12px",
+                    border: "1px solid var(--border)",
+                    zIndex: 1001,
+                  }}
+                >
+                  <button onClick={() => fileInputRef.current.click()} style={{ background: "var(--primary-pale)", border: "none", borderRadius: "12px", padding: "10px", color: "var(--primary)", cursor: "pointer" }}>
+                    <ImageIcon size={20} />
+                  </button>
+                  <button onClick={() => fileInputRef.current.click()} style={{ background: "var(--primary-pale)", border: "none", borderRadius: "12px", padding: "10px", color: "var(--primary)", cursor: "pointer" }}>
+                    <Paperclip size={20} />
+                  </button>
+                  <button 
+                    onMouseDown={startRecording} 
+                    onMouseUp={stopRecording}
+                    onTouchStart={startRecording}
+                    onTouchEnd={stopRecording}
+                    style={{ background: isRecording ? "#ff4757" : "var(--primary-pale)", border: "none", borderRadius: "12px", padding: "10px", color: isRecording ? "white" : "var(--primary)", cursor: "pointer" }}
+                  >
+                    <Mic size={20} />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-            {/* Main Input field in the middle */}
-            <input
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-              placeholder={lang === "ar" ? "اكتب هنا..." : "Type here..."}
-              style={{
-                ...styles.input,
-                background: "white",
-                boxShadow: "none",
-                fontSize: "13px",
-              }}
-            />
-
-            {/* Send Button on the Left side (End of RTL) */}
-            <motion.button
-              whileHover={{ scale: 1.1, rotate: lang === "ar" ? 10 : -10 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={sendMessage}
-              style={{
-                background: "linear-gradient(135deg, #629FAD, #4A8999)",
-                color: "white",
-                width: "44px",
-                height: "44px",
-                borderRadius: "50%",
-                border: "none",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 4px 15px rgba(98, 159, 173, 0.3)",
-              }}
-            >
-              <Send
-                size={18}
+            <div style={styles.inputGroup}>
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => setShowUploadMenu(!showUploadMenu)}
                 style={{
-                  transform: lang === "ar" ? "rotate(180deg)" : "none",
-                  marginLeft: lang === "ar" ? "0" : "2px",
+                  background: showUploadMenu ? "var(--primary)" : "var(--primary-pale)",
+                  border: "none",
+                  borderRadius: "15px",
+                  width: "42px",
+                  height: "42px",
+                  color: showUploadMenu ? "white" : "var(--primary)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Plus size={22} style={{ transform: showUploadMenu ? "rotate(45deg)" : "none", transition: "0.2s" }} />
+              </motion.button>
+
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+                placeholder={isInstruction ? (lang === "ar" ? "أرسل تعليمات..." : "Send instruction...") : (lang === "ar" ? "اكتب هنا..." : "Type here...")}
+                style={{
+                  ...styles.input,
+                  background: isInstruction ? "rgba(255, 215, 0, 0.1)" : "var(--bg-app)",
+                  border: isInstruction ? "1px solid #FFD700" : "1px solid var(--border)",
                 }}
               />
-            </motion.button>
+
+              {isAdmin && !newMessage && (
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => setIsInstruction(!isInstruction)}
+                  style={{
+                    background: isInstruction ? "#FFD700" : "var(--primary-pale)",
+                    border: "none",
+                    borderRadius: "15px",
+                    width: "42px",
+                    height: "42px",
+                    color: isInstruction ? "white" : "var(--primary)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Award size={20} />
+                </motion.button>
+              )}
+
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={sendMessage}
+                style={{
+                  background: "linear-gradient(135deg, var(--primary), var(--accent))",
+                  color: "white",
+                  width: "44px",
+                  height: "44px",
+                  borderRadius: "50%",
+                  border: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: "0 4px 15px rgba(255,255,255,0.1)",
+                }}
+              >
+                <Send size={18} style={{ transform: lang === "ar" ? "rotate(180deg)" : "none" }} />
+              </motion.button>
+            </div>
           </div>
         )}
         {activeTab === "files" && (
@@ -1686,7 +1867,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
             style={{
               width: "100%",
               padding: "14px",
-              background: "#629FAD",
+              background: "var(--primary-light)",
               color: "white",
               border: "none",
               borderRadius: "16px",
