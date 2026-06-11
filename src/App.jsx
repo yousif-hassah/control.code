@@ -656,28 +656,27 @@ export default function App() {
       fetchGroupStats();
       fetchNotifications();
       
-      // Request Notification Token & save it by EMAIL (reliable conflict key)
-      requestForToken().then(async (token) => {
-        if (token) {
-          // Store in state so the alarm can use it for background push
-          setMyFcmToken(token);
-          // Also save to localStorage so sub-components (HomeScreen alarm) can access it
-          localStorage.setItem("my_fcm_token", token);
+      // Delay requesting FCM token to ensure PWA Service Worker is fully active/ready
+      setTimeout(() => {
+        requestForToken().then(async (token) => {
+          if (token) {
+            setMyFcmToken(token);
+            localStorage.setItem("my_fcm_token", token);
 
-          if (user.email) {
+            // Save FCM token directly using primary key (user.uid)
             const { error } = await supabase
               .from("profiles")
               .update({ fcm_token: token })
-              .ilike("email", user.email);
+              .eq("id", user.uid);
 
             if (!error) {
-              console.log("✅ FCM Token saved to Supabase by email successfully");
+              console.log("✅ FCM Token saved to Supabase profiles successfully");
             } else {
               console.error("❌ Error saving FCM token:", error.message);
             }
           }
-        }
-      });
+        });
+      }, 1500);
     }
   }, [user?.uid]);
 
