@@ -660,13 +660,15 @@ export default function App() {
       audio.play().catch(() => {});
     } catch (e) {}
 
-    // Show browser notification
-    if (Notification.permission === "granted") {
-      new Notification(title, { body, icon });
-    } else if (Notification.permission !== "denied") {
-      Notification.requestPermission().then(permission => {
-        if (permission === "granted") new Notification(title, { body, icon });
-      });
+    // Show browser notification safely
+    if (typeof window !== "undefined" && "Notification" in window) {
+      if (Notification.permission === "granted") {
+        new Notification(title, { body, icon });
+      } else if (Notification.permission !== "denied") {
+        Notification.requestPermission().then(permission => {
+          if (permission === "granted") new Notification(title, { body, icon });
+        });
+      }
     }
 
     // Also add to in-app notifications list
@@ -730,8 +732,8 @@ export default function App() {
             audio.play().catch(() => {});
           } catch (e) {}
 
-          // 2. Show browser notification (if permission granted)
-          if (Notification.permission === "granted") {
+          // 2. Show browser notification safely (if permission granted)
+          if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
             new Notification(notif.title, {
               body: notif.body,
               icon: "/controll.app.png",
@@ -2464,37 +2466,39 @@ function HomeScreen({
               : "حان وقت الكتابة في مذكراتك!"),
         );
 
-        // Request notification permission if not granted
-        if (Notification.permission === "granted") {
-          new Notification(
-            lang === "en" ? "Journal Reminder 📝" : "تذكير بالمذكرات 📝",
-            {
-              body:
-                journalTitle ||
-                (lang === "en"
-                  ? "Time to write in your journal!"
-                  : "حان وقت الكتابة في مذكراتك!"),
-              icon: "/controll.app.png",
-              badge: "/controll.app.png",
-            },
-          );
-        } else if (Notification.permission !== "denied") {
-          Notification.requestPermission().then((permission) => {
-            if (permission === "granted") {
-              new Notification(
-                lang === "en" ? "Journal Reminder 📝" : "تذكير بالمذكرات 📝",
-                {
-                  body:
-                    journalTitle ||
-                    (lang === "en"
-                      ? "Time to write in your journal!"
-                      : "حان وقت الكتابة في مذكراتك!"),
-                  icon: "/controll.app.png",
-                  badge: "/controll.app.png",
-                },
-              );
-            }
-          });
+        // Request notification permission safely if supported and not granted
+        if (typeof window !== "undefined" && "Notification" in window) {
+          if (Notification.permission === "granted") {
+            new Notification(
+              lang === "en" ? "Journal Reminder 📝" : "تذكير بالمذكرات 📝",
+              {
+                body:
+                  journalTitle ||
+                  (lang === "en"
+                    ? "Time to write in your journal!"
+                    : "حان وقت الكتابة في مذكراتك!"),
+                icon: "/controll.app.png",
+                badge: "/controll.app.png",
+              },
+            );
+          } else if (Notification.permission !== "denied") {
+            Notification.requestPermission().then((permission) => {
+              if (permission === "granted") {
+                new Notification(
+                  lang === "en" ? "Journal Reminder 📝" : "تذكير بالمذكرات 📝",
+                  {
+                    body:
+                      journalTitle ||
+                      (lang === "en"
+                        ? "Time to write in your journal!"
+                        : "حان وقت الكتابة في مذكراتك!"),
+                    icon: "/controll.app.png",
+                    badge: "/controll.app.png",
+                  },
+                );
+              }
+            });
+          }
         }
       }
     };
