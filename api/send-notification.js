@@ -84,8 +84,48 @@ module.exports = async function handler(req, res) {
 
   try {
     const message = {
+      // Base notification (all platforms)
       notification: { title, body },
       tokens: tokens,
+
+      // Web Push (Chrome on Android, Desktop browsers)
+      webpush: {
+        notification: {
+          title,
+          body,
+          icon: "/controll.app.png",
+          badge: "/controll.app.png",
+          vibrate: [200, 100, 200],
+          requireInteraction: false,
+        },
+        fcmOptions: {
+          link: "https://control-code-1.vercel.app",
+        },
+      },
+
+      // Android native app config
+      android: {
+        priority: "high",
+        notification: {
+          sound: "default",
+          icon: "notification_icon",
+          clickAction: "FLUTTER_NOTIFICATION_CLICK",
+        },
+      },
+
+      // iOS (APNs) - required for iOS PWA
+      apns: {
+        headers: {
+          "apns-priority": "10",
+        },
+        payload: {
+          aps: {
+            alert: { title, body },
+            sound: "default",
+            badge: 1,
+          },
+        },
+      },
     };
     if (data) {
       message.data = data;

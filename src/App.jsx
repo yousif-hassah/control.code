@@ -626,6 +626,28 @@ export default function App() {
       return {};
     }
   });
+  // Store MY own FCM token so the journal alarm can trigger a push even when minimized
+  const [myFcmToken, setMyFcmToken] = useState(null);
+
+  // Helper to call the FCM API with any tokens (used by alarm + group notifications)
+  const callFcmApi = async (tokens, title, body) => {
+    if (!tokens || tokens.length === 0) return;
+    try {
+      const apiUrl = import.meta.env.DEV
+        ? "http://localhost:3001/api/send-notification"
+        : "/api/send-notification";
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tokens, title, body }),
+      });
+      const result = await res.json();
+      console.log("📡 FCM push result:", result);
+    } catch (err) {
+      console.warn("⚠️ FCM push failed (non-critical):", err.message);
+    }
+  };
+
   useEffect(() => {
     if (user?.uid) {
       fetchTodos();
@@ -635,16 +657,21 @@ export default function App() {
       
       // Request Notification Token & save it by EMAIL (reliable conflict key)
       requestForToken().then(async (token) => {
-        if (token && user.email) {
-          const { error } = await supabase
-            .from("profiles")
-            .update({ fcm_token: token })
-            .ilike("email", user.email);
+        if (token) {
+          // Store in state so the alarm can use it for background push
+          setMyFcmToken(token);
 
-          if (!error) {
-            console.log("✅ FCM Token saved to Supabase by email successfully");
-          } else {
-            console.error("❌ Error saving FCM token:", error.message);
+          if (user.email) {
+            const { error } = await supabase
+              .from("profiles")
+              .update({ fcm_token: token })
+              .ilike("email", user.email);
+
+            if (!error) {
+              console.log("✅ FCM Token saved to Supabase by email successfully");
+            } else {
+              console.error("❌ Error saving FCM token:", error.message);
+            }
           }
         }
       });
@@ -2448,57 +2475,27 @@ function HomeScreen({
       if (currentTime === journalReminder && !hasTriggered) {
         hasTriggered = true;
 
-        // Play notification sound
+        const alarmTitle = lang === "en" ? "Journal Reminder 📝" : "تذكير بالمذكرات 📝";
+        const alarmBody = journalTitle ||
+          (lang === "en" ? "Time to write in your journal!" : "حان وقت الكتابة في مذكراتك!");
+
+        // 1. Play notification sound
         const audio = new Audio(
           "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIGWm98OScTgwOUKzn77RgGwU7k9n0yXkpBSh+zPLaizsKElyx6OyrWBUIQ5zd8sFuJAUuhM/z1YU2Bhxqvf",
         );
         audio.play().catch((e) => console.log("Audio play failed:", e));
 
-        // Show custom notification modal
+        // 2. Show custom notification modal in-app
         setShowAlarmNotification(true);
 
-        // Fire enhanced local notification (sound + browser popup + in-app)
-        sendLocalNotification(
-          lang === "en" ? "Journal Reminder 📝" : "تذكير بالمذكرات 📝",
-          journalTitle ||
-            (lang === "en"
-              ? "Time to write in your journal!"
-              : "حان وقت الكتابة في مذكراتك!"),
-        );
+        // 3. Show browser local notification (if app is visible/foreground)
+        sendLocalNotification(alarmTitle, alarmBody);
 
-        // Request notification permission safely if supported and not granted
-        if (typeof window !== "undefined" && "Notification" in window) {
-          if (Notification.permission === "granted") {
-            new Notification(
-              lang === "en" ? "Journal Reminder 📝" : "تذكير بالمذكرات 📝",
-              {
-                body:
-                  journalTitle ||
-                  (lang === "en"
-                    ? "Time to write in your journal!"
-                    : "حان وقت الكتابة في مذكراتك!"),
-                icon: "/controll.app.png",
-                badge: "/controll.app.png",
-              },
-            );
-          } else if (Notification.permission !== "denied") {
-            Notification.requestPermission().then((permission) => {
-              if (permission === "granted") {
-                new Notification(
-                  lang === "en" ? "Journal Reminder 📝" : "تذكير بالمذكرات 📝",
-                  {
-                    body:
-                      journalTitle ||
-                      (lang === "en"
-                        ? "Time to write in your journal!"
-                        : "حان وقت الكتابة في مذكراتك!"),
-                    icon: "/controll.app.png",
-                    badge: "/controll.app.png",
-                  },
-                );
-              }
-            });
-          }
+        // 4. Send FCM push via the server → works even when app is MINIMIZED on phone
+        //    Uses the user's OWN token so only this account receives it
+        if (myFcmToken) {
+          callFcmApi([myFcmToken], alarmTitle, alarmBody);
+          console.log("📡 Journal alarm FCM push sent to own device");
         }
       }
     };
@@ -2506,11 +2503,11 @@ function HomeScreen({
     // Check immediately
     checkReminder();
 
-    // Check every minute
+    // Check every minute (accurate to the minute)
     const interval = setInterval(checkReminder, 60000);
 
     return () => clearInterval(interval);
-  }, [journalReminder, journalTitle, lang, selectedDate]);
+  }, [journalReminder, journalTitle, lang, selectedDate, myFcmToken]);
 
   return (
     <div className="home-screen">
