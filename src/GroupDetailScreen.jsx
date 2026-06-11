@@ -300,15 +300,15 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
     }
   };
 
-  // ── Realtime Notification Bus (works without FCM/HTTPS) ──────────────
+  // ── Realtime Notification Bus ─────────────────────────────────────────
   // Inserts a row into group_notifications — Supabase Realtime broadcasts
-  // it instantly to all connected clients who are listening.
+  // it instantly to all connected clients who are listening (app open).
   const sendRealtimeNotification = async (title, body, type = "system", recipientId = null) => {
     try {
       const { error } = await supabase.from("group_notifications").insert([{
         group_id: group.id,
         sender_id: user.uid,
-        recipient_id: recipientId,  // null = all members
+        recipient_id: recipientId,
         title,
         body,
         type,
@@ -320,6 +320,51 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
       }
     } catch (err) {
       console.error("❌ Realtime notification failed:", err.message);
+    }
+  };
+
+  // ── FCM Push Notification (works even when app is CLOSED/BACKGROUND) ──
+  // Calls the Vercel serverless function which uses Firebase Admin SDK
+  // to push real notifications to devices via FCM.
+  const sendPushNotification = async (title, body, recipientId = null) => {
+    try {
+      // Collect FCM tokens — exclude the sender, optionally filter to one recipient
+      let targetMembers = members.filter((m) => m.user_id !== user.uid);
+      if (recipientId) {
+        targetMembers = targetMembers.filter((m) => m.user_id === recipientId);
+      }
+
+      // Gather tokens from already-loaded members (includes fcm_token column)
+      const tokens = targetMembers
+        .map((m) => m.profiles?.fcm_token)
+        .filter(Boolean);
+
+      if (tokens.length === 0) {
+        console.log("ℹ️ No FCM tokens found for recipients — skipping push");
+        return;
+      }
+
+      console.log(`📡 Sending FCM push to ${tokens.length} device(s): "${title}"`);
+
+      const apiUrl = import.meta.env.DEV
+        ? "http://localhost:3001/api/send-notification"
+        : "/api/send-notification";
+
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tokens, title, body }),
+      });
+
+      const result = await res.json();
+      if (result.success) {
+        console.log(`✅ FCM push delivered. Success: ${result.successCount}, Fail: ${result.failureCount}`);
+      } else {
+        console.warn("⚠️ FCM push response:", result);
+      }
+    } catch (err) {
+      // Non-critical: app still works without push, Realtime is the fallback
+      console.warn("⚠️ FCM push failed (non-critical):", err.message);
     }
   };
 
@@ -350,26 +395,17 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
       if (error) throw error;
       await logActivity("task_created", taskTitle);
       
-      // Send Realtime notification to assigned member or all members
-      if (targetMember) {
-        await sendRealtimeNotification(
-          lang === "ar" ? `📋 مهمة جديدة في ${group.name}` : `📋 New Task in ${group.name}`,
-          lang === "ar"
-            ? `تم تكليفك بمهمة جديدة: "${taskTitle}"`
-            : `You've been assigned: "${taskTitle}"`,
-          "task",
-          targetMember  // send only to the assigned user
-        );
-      } else {
-        await sendRealtimeNotification(
-          lang === "ar" ? `📋 مهمة جديدة في ${group.name}` : `📋 New Task in ${group.name}`,
-          lang === "ar"
-            ? `مهمة جديدة للجميع: "${taskTitle}"`
-            : `New task for everyone: "${taskTitle}"`,
-          "task",
-          null  // broadcast to all members
-        );
-      }
+      // Send notifications to assigned member or all members
+      const taskNotifTitle = lang === "ar" ? `📋 مهمة جديدة في ${group.name}` : `📋 New Task in ${group.name}`;
+      const taskNotifBody = targetMember
+        ? (lang === "ar" ? `تم تكليفك بمهمة جديدة: "${taskTitle}"` : `You've been assigned: "${taskTitle}"`)
+        : (lang === "ar" ? `مهمة جديدة للجميع: "${taskTitle}"` : `New task for everyone: "${taskTitle}"`);
+      const taskRecipient = targetMember || null;
+
+      // 1. Realtime (works when app is OPEN)
+      await sendRealtimeNotification(taskNotifTitle, taskNotifBody, "task", taskRecipient);
+      // 2. FCM Push (works when app is CLOSED/BACKGROUND)
+      await sendPushNotification(taskNotifTitle, taskNotifBody, taskRecipient);
 
       setNewTaskTitle("");
       setSelectedMember("");
@@ -444,16 +480,16 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
         task.title,
       );
 
-      // Send Realtime notification when task is completed
+      // Send notifications when task is completed
       if (newStatus === "completed") {
-        await sendRealtimeNotification(
-          lang === "ar" ? `✅ مهمة مكتملة في ${group.name}` : `✅ Task Completed in ${group.name}`,
-          lang === "ar"
-            ? `قام ${user.name} بإكمال المهمة: "${task.title}"`
-            : `${user.name} completed: "${task.title}"`,
-          "task_complete",
-          null  // notify all group members
-        );
+        const completeTitle = lang === "ar" ? `✅ مهمة مكتملة في ${group.name}` : `✅ Task Completed in ${group.name}`;
+        const completeBody = lang === "ar"
+          ? `قام ${user.name} بإكمال المهمة: "${task.title}"`
+          : `${user.name} completed: "${task.title}"`;
+        // 1. Realtime (app open)
+        await sendRealtimeNotification(completeTitle, completeBody, "task_complete", null);
+        // 2. FCM Push (app closed)
+        await sendPushNotification(completeTitle, completeBody, null);
       }
     } catch (e) {
       console.error("Update Task Error:", e);
@@ -536,13 +572,13 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
       // Log activity in background
       logActivity("message_sent", messageText.substring(0, 50));
       
-      // Send Realtime notification to all other group members
-      await sendRealtimeNotification(
-        `💬 ${group.name}`,
-        `${user.name}: ${messageText.substring(0, 100)}`,
-        "message",
-        null  // broadcast to all members (filtered on receiver side by sender_id)
-      );
+      // Send notifications to all other group members
+      const msgTitle = `💬 ${group.name}`;
+      const msgBody = `${user.name}: ${messageText.substring(0, 100)}`;
+      // 1. Realtime (app open)
+      await sendRealtimeNotification(msgTitle, msgBody, "message", null);
+      // 2. FCM Push (app closed)
+      await sendPushNotification(msgTitle, msgBody, null);
 
       scrollToBottom();
     } catch (e) {
