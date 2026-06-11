@@ -660,6 +660,8 @@ export default function App() {
         if (token) {
           // Store in state so the alarm can use it for background push
           setMyFcmToken(token);
+          // Also save to localStorage so sub-components (HomeScreen alarm) can access it
+          localStorage.setItem("my_fcm_token", token);
 
           if (user.email) {
             const { error } = await supabase
@@ -2492,10 +2494,23 @@ function HomeScreen({
         sendLocalNotification(alarmTitle, alarmBody);
 
         // 4. Send FCM push via the server → works even when app is MINIMIZED on phone
-        //    Uses the user's OWN token so only this account receives it
-        if (myFcmToken) {
-          callFcmApi([myFcmToken], alarmTitle, alarmBody);
-          console.log("📡 Journal alarm FCM push sent to own device");
+        //    Read the token from localStorage (avoids cross-component scope issues)
+        const myToken = localStorage.getItem("my_fcm_token");
+        if (myToken) {
+          try {
+            const apiUrl = "/api/send-notification";
+            fetch(apiUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tokens: [myToken], title: alarmTitle, body: alarmBody }),
+            }).then(r => r.json()).then(result => {
+              console.log("📡 Journal alarm FCM push result:", result);
+            }).catch(err => {
+              console.warn("⚠️ FCM alarm push failed (non-critical):", err.message);
+            });
+          } catch (err) {
+            console.warn("⚠️ FCM alarm push error:", err.message);
+          }
         }
       }
     };
@@ -2507,7 +2522,7 @@ function HomeScreen({
     const interval = setInterval(checkReminder, 60000);
 
     return () => clearInterval(interval);
-  }, [journalReminder, journalTitle, lang, selectedDate, myFcmToken]);
+  }, [journalReminder, journalTitle, lang, selectedDate]);
 
   return (
     <div className="home-screen">
