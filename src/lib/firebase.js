@@ -46,13 +46,9 @@ export const requestForToken = async () => {
       return null;
     }
 
-    // Register the FCM-specific service worker separately
-    const fcmReg = await navigator.serviceWorker.register(
-      "/firebase-messaging-sw.js",
-      { scope: "/firebase-cloud-messaging-push-scope" }
-    );
-    await navigator.serviceWorker.ready;
-    console.log("✅ FCM Service Worker registered:", fcmReg.scope);
+    // Wait for the active PWA service worker registration (registered in main.jsx)
+    const pwaReg = await navigator.serviceWorker.ready;
+    console.log("✅ Using active PWA Service Worker for FCM:", pwaReg.scope);
 
     if (!messaging) messaging = getMessaging(app);
 
@@ -61,10 +57,10 @@ export const requestForToken = async () => {
       token = await getToken(messaging, {
         vapidKey:
           "BCPR1Bii5kdoBC2JmgdlaW1jHEM7eGQHkD0OOI40vur1V5MYxD9CaQBoGBDftBo5BzW9tDKuiMGTyVG4dczTXSg",
-        serviceWorkerRegistration: fcmReg,
+        serviceWorkerRegistration: pwaReg,
       });
     } catch (tokenErr) {
-      console.warn("⚠️ getToken with custom SW failed, trying default:", tokenErr.message);
+      console.warn("⚠️ getToken with PWA SW failed, trying default:", tokenErr.message);
       try {
         token = await getToken(messaging, {
           vapidKey:

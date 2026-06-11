@@ -654,6 +654,7 @@ export default function App() {
       fetchJournals();
       fetchPinnedNotes();
       fetchGroupStats();
+      fetchNotifications();
       
       // Request Notification Token & save it by EMAIL (reliable conflict key)
       requestForToken().then(async (token) => {
@@ -790,6 +791,70 @@ export default function App() {
     };
   }, [user?.uid]);
 
+  const fetchNotifications = async () => {
+    if (!user?.uid) return;
+    try {
+      const { data: memberGroups } = await supabase
+        .from("group_members")
+        .select("group_id")
+        .eq("user_id", user.uid);
+
+      const groupIds = memberGroups ? memberGroups.map(g => g.group_id) : [];
+
+      let query = supabase
+        .from("group_notifications")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (groupIds.length > 0) {
+        query = query.or(`recipient_id.eq.${user.uid},group_id.in.(${groupIds.map(id => `"${id}"`).join(",")})`);
+      } else {
+        query = query.eq("recipient_id", user.uid);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      if (data) {
+        const filtered = data.filter(n => {
+          if (n.sender_id === user.uid) return false;
+          if (n.recipient_id && n.recipient_id !== user.uid) return false;
+          return true;
+        });
+
+        const formatted = filtered.map(n => {
+          let timeStr = lang === "en" ? "Just now" : "الآن";
+          if (n.created_at) {
+            try {
+              timeStr = new Date(n.created_at).toLocaleDateString(lang === "en" ? "en-US" : "ar-EG", {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit"
+              });
+            } catch (e) {}
+          }
+          return {
+            id: n.id || Date.now(),
+            type: n.type || "system",
+            text: `${n.title}: ${n.body}`,
+            time: timeStr,
+            read: true,
+          };
+        });
+
+        setNotifications(formatted);
+        localStorage.setItem("cached_notifications", JSON.stringify(formatted));
+      }
+    } catch (err) {
+      console.warn("⚠️ Fetch notifications failed (non-critical):", err.message);
+      const saved = localStorage.getItem("cached_notifications");
+      if (saved) setNotifications(JSON.parse(saved));
+    }
+  };
+
   const fetchTodos = async () => {
     if (!user?.uid) return;
     try {
@@ -910,7 +975,14 @@ export default function App() {
       console.error("Error fetching group stats:", e);
     }
   };
-  const [notifications, setNotifications] = useState([]);
+  const [notifications, setNotifications] = useState(() => {
+    try {
+      const saved = localStorage.getItem("cached_notifications");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [activeMeditation, setActiveMeditation] = useState(null);
   const [meditationHistory, setMeditationHistory] = useState(() => {
     try {
