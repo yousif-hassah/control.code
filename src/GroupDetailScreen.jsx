@@ -324,27 +324,26 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   };
 
   // ── FCM Push Notification (works even when app is CLOSED/BACKGROUND) ──
-  // Calls the Vercel serverless function which uses Firebase Admin SDK
-  // to push real notifications to devices via FCM.
+  // Sends recipientUserIds to the Vercel function which uses service_role key
+  // to look up FCM tokens — this bypasses Supabase RLS which blocks reading
+  // other users' fcm_token from the client side.
   const sendPushNotification = async (title, body, recipientId = null) => {
     try {
-      // Collect FCM tokens — exclude the sender, optionally filter to one recipient
-      let targetMembers = members.filter((m) => m.user_id !== user.uid);
+      // Build list of target user IDs (exclude the sender)
+      let targetUserIds = members
+        .filter((m) => m.user_id !== user.uid)
+        .map((m) => m.user_id);
+
       if (recipientId) {
-        targetMembers = targetMembers.filter((m) => m.user_id === recipientId);
+        targetUserIds = targetUserIds.filter((id) => id === recipientId);
       }
 
-      // Gather tokens from already-loaded members (includes fcm_token column)
-      const tokens = targetMembers
-        .map((m) => m.profiles?.fcm_token)
-        .filter(Boolean);
-
-      if (tokens.length === 0) {
-        console.log("ℹ️ No FCM tokens found for recipients — skipping push");
+      if (targetUserIds.length === 0) {
+        console.log("ℹ️ No recipients found — skipping push");
         return;
       }
 
-      console.log(`📡 Sending FCM push to ${tokens.length} device(s): "${title}"`);
+      console.log(`📡 Sending FCM push to ${targetUserIds.length} user(s): "${title}"`);
 
       const apiUrl = import.meta.env.DEV
         ? "http://localhost:3001/api/send-notification"
@@ -353,17 +352,16 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
       const res = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tokens, title, body }),
+        body: JSON.stringify({ recipientUserIds: targetUserIds, title, body }),
       });
 
       const result = await res.json();
       if (result.success) {
-        console.log(`✅ FCM push delivered. Success: ${result.successCount}, Fail: ${result.failureCount}`);
+        console.log(`✅ FCM push sent. Success: ${result.successCount ?? "?"}, Skipped: ${result.skipped ?? false}`);
       } else {
         console.warn("⚠️ FCM push response:", result);
       }
     } catch (err) {
-      // Non-critical: app still works without push, Realtime is the fallback
       console.warn("⚠️ FCM push failed (non-critical):", err.message);
     }
   };
