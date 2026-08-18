@@ -75,6 +75,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   const [lastAlarmTriggeredDate, setLastAlarmTriggeredDate] = useState("");
   const realPlantFileInputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const chatEndRef = useRef(null);
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
