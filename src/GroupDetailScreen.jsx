@@ -74,6 +74,7 @@ export function GroupDetailScreen({ group, user, lang, onClose }) {
   const [isUploadingRealPlant, setIsUploadingRealPlant] = useState(false);
   const [lastAlarmTriggeredDate, setLastAlarmTriggeredDate] = useState("");
   const realPlantFileInputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
