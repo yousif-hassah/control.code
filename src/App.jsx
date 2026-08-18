@@ -993,7 +993,7 @@ export default function App() {
     }
   });
 
-  const recordMeditationCompletion = (item) => {
+  const recordMeditationCompletion = async (item) => {
     const newEntry = {
       id: Date.now(),
       title: item.title,
@@ -1003,6 +1003,61 @@ export default function App() {
     const updated = [newEntry, ...meditationHistory];
     setMeditationHistory(updated);
     localStorage.setItem("meditationHistory", JSON.stringify(updated));
+
+    // Award 10 water drops to the gardens of all groups the user is in
+    if (user?.uid && groups && groups.length > 0) {
+      for (const g of groups) {
+        if (!g.id) continue;
+        try {
+          // Check if garden exists
+          const { data: garden } = await supabase
+            .from("group_gardens")
+            .select("*")
+            .eq("group_id", g.id)
+            .maybeSingle();
+
+          if (garden) {
+            await supabase
+              .from("group_gardens")
+              .update({ water_drops: garden.water_drops + 10 })
+              .eq("group_id", g.id);
+          } else {
+            await supabase
+              .from("group_gardens")
+              .insert([{ group_id: g.id, water_drops: 10, level: 1, experience: 0 }]);
+          }
+
+          // Format notifications
+          const titleAr = `💧 تم شحن الحديقة الرقمية!`;
+          const bodyAr = `أكمل ${user.name || "عضو"} جلسة تأمل وشحن الحديقة بـ 10 قطرات ماء!`;
+          const titleEn = `💧 Garden charged!`;
+          const bodyEn = `${user.name || "A member"} completed a meditation and earned 10 water drops for the garden!`;
+
+          // Log in activities
+          await supabase.from("group_activities").insert([
+            {
+              group_id: g.id,
+              user_id: user.uid,
+              action_type: "meditation_completed",
+              content: typeof item.title === "string" ? item.title : (item.title[lang] || item.title.en || "Meditation Session"),
+            },
+          ]);
+
+          // Send realtime notification (broadcasting to others in app)
+          await supabase.from("group_notifications").insert([
+            {
+              group_id: g.id,
+              sender_id: user.uid,
+              title: lang === "ar" ? titleAr : titleEn,
+              body: lang === "ar" ? bodyAr : bodyEn,
+              type: "garden_water",
+            },
+          ]);
+        } catch (e) {
+          console.error("❌ Error updating garden for group:", g.id, e);
+        }
+      }
+    }
   };
   const [groups, setGroups] = useState([]);
   useEffect(() => {

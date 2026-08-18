@@ -1,0 +1,1161 @@
+control.code — Offline Mesh Chat Integration
+Mission
+
+Develop the existing repository:
+
+https://github.com/yousif-hassah/control.code.git
+
+Transform the existing Chat functionality into an offline-first messaging system inspired by bitchat, while preserving all existing functionality.
+
+The final architecture must support:
+
+Web
+Android
+iOS
+Online messaging through Supabase
+Offline mobile messaging through Bluetooth Mesh
+Store & Forward
+Multi-hop relay
+End-to-End Encryption
+Synchronization when connectivity returns
+Existing Groups and Group Chat
+Existing file/attachment functionality
+
+Do not rebuild the application from scratch.
+
+1. IMPORTANT RULES
+
+Before making any changes:
+
+Inspect the entire repository.
+Understand the existing architecture.
+Identify the current Chat implementation.
+Identify the current Supabase schema and RLS policies.
+Identify how authentication and Groups work.
+Identify whether any Mobile/Native architecture already exists.
+Do not assume the project is React Native.
+Preserve the current Web application.
+Do not delete existing functionality.
+Do not perform destructive database migrations.
+Do not add unnecessary dependencies.
+Do not copy bitchat wholesale.
+Inspect the license of every bitchat component considered for reuse.
+Do not introduce GPL code into a proprietary component without explicitly flagging the licensing consequences.
+Do not invent cryptography.
+Never expose private keys or plaintext messages in production logs.
+2. FIRST TASK — REPOSITORY AUDIT
+
+Before implementing anything, inspect:
+
+package.json
+src/
+supabase/
+database/
+migrations/
+vite.config.*
+README*
+.env*
+authentication
+routing
+Groups
+GroupDetailScreen
+Chat
+file upload
+Realtime
+
+
+Also inspect the Git history if useful.
+
+Determine:
+
+Current framework
+Current frontend architecture
+Current state management
+Current routing
+Supabase configuration
+Current database schema
+Current group_messages implementation
+Realtime implementation
+Existing attachment/file handling
+Existing authentication
+Existing Group membership model
+Existing RLS policies
+Existing mobile configuration
+Existing PWA/service-worker functionality
+
+Do not modify anything yet.
+
+First produce an architecture report.
+
+3. CURRENT CHAT
+
+The current application already has Group Chat functionality.
+
+Preserve:
+
+Groups
+Group membership
+Authentication
+Existing UI
+Existing navigation
+User profiles
+Existing messages
+Attachments
+Supabase
+Realtime
+
+The goal is to refactor and extend, not replace.
+
+The current architecture should evolve from:
+
+Chat UI
+   ↓
+Supabase
+   ↓
+group_messages
+
+
+into:
+
+Chat UI
+   ↓
+ChatService
+   ↓
+Message Protocol
+   ↓
+Transport Layer
+   ├── Supabase
+   ├── BLE Mesh
+   └── Web Transport
+
+4. TARGET ARCHITECTURE
+
+Use this conceptual architecture:
+
+                    control.code
+                         │
+                  ┌──────┴──────┐
+                  │             │
+              Online         Offline
+                  │             │
+               Supabase       BLE Mesh
+                  │             │
+             Realtime        Relay / Store
+                  │             │
+                  └──────┬──────┘
+                         │
+                    ChatService
+                         │
+                  Message Protocol
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+          Local Store          E2E Encryption
+              │
+          Sync Engine
+
+
+The Chat UI must not directly depend on Supabase or BLE.
+
+5. RECOMMENDED CODE STRUCTURE
+
+Adapt this structure to the existing project conventions:
+
+src/
+├── chat/
+│   ├── chatService.js
+│   ├── messageProtocol.js
+│   ├── messageStore.js
+│   ├── messageQueue.js
+│   ├── syncEngine.js
+│   ├── chatTypes.js
+│   └── encryption/
+│       ├── cryptoService.js
+│       ├── keyManager.js
+│       └── identity.js
+│
+├── transports/
+│   ├── supabaseTransport.js
+│   ├── webTransport.js
+│   └── bleTransport.js
+│
+├── components/
+│   ├── ChatScreen.jsx
+│   ├── MessageBubble.jsx
+│   ├── ChatInput.jsx
+│   ├── ConnectionStatus.jsx
+│   └── MessageStatus.jsx
+│
+└── lib/
+    └── supabaseClient.js
+
+
+Do not blindly create these files if equivalent architecture already exists.
+
+Follow the project's existing naming conventions.
+
+6. MESSAGE PROTOCOL
+
+Create a transport-independent message format.
+
+A message should contain at minimum:
+
+{
+  id,
+  conversationId,
+  senderId,
+  senderDeviceId,
+  type,
+  ciphertext,
+  createdAt,
+  ttl,
+  hopCount,
+  maxHops,
+  replyTo,
+  attachmentId,
+  signature,
+  status,
+  protocolVersion
+}
+
+
+Requirements:
+
+id must be globally unique.
+Generate IDs locally.
+Never depend on a Supabase database ID.
+Messages must be serializable.
+Messages must be validated before processing.
+Messages must contain a protocol version.
+Unknown/invalid messages must be rejected safely.
+7. OFFLINE-FIRST BEHAVIOR
+
+Sending a message should follow:
+
+User
+ ↓
+Create Message
+ ↓
+Encrypt
+ ↓
+Persist Locally
+ ↓
+Add to Outbox
+ ↓
+Select Available Transport
+
+
+If Internet is available:
+
+Supabase
+
+
+If Internet is unavailable on mobile:
+
+BLE Mesh
+
+
+If transmission fails:
+
+Outbox
+ ↓
+Retry
+
+
+The UI must not fail simply because Supabase is unavailable.
+
+8. LOCAL STORAGE
+
+Implement proper local persistence.
+
+For Web:
+
+IndexedDB or another appropriate browser database.
+
+For Mobile:
+
+SQLite or another reliable persistent database.
+
+Do not use localStorage as the primary database for messages.
+
+Persist:
+
+messages
+conversations
+outbox
+processed message IDs
+sync state
+device identity
+encryption metadata
+9. MESSAGE DEDUPLICATION
+
+Mesh networks can deliver the same message multiple times.
+
+Implement deduplication based on:
+
+message.id
+
+
+Before processing:
+
+if message already processed:
+    ignore
+else:
+    process
+
+
+The same message must never appear multiple times in the UI.
+
+10. MESH RELAY
+
+Support multi-hop messaging:
+
+A
+ ↓
+B
+ ↓
+C
+ ↓
+D
+
+
+If B receives a message intended for D, B may relay it.
+
+Use:
+
+hopCount
+maxHops
+messageId
+TTL
+
+
+Example:
+
+maxHops = 7
+
+
+Increment:
+
+hopCount++
+
+
+Stop relaying when:
+
+hopCount >= maxHops
+
+
+Prevent infinite loops.
+
+Never continuously rebroadcast the same message.
+
+11. STORE & FORWARD
+
+Support temporary message storage.
+
+When a device receives a message:
+
+Receive
+ ↓
+Validate
+ ↓
+Deduplicate
+ ↓
+Store temporarily
+ ↓
+Relay if appropriate
+
+
+Implement:
+
+TTL
+expiration
+maximum cache size
+deduplication
+cleanup
+
+Do not allow unlimited storage.
+
+12. BLUETOOTH MESH
+
+Android and iOS must eventually support native BLE Mesh.
+
+The Web browser must NOT be treated as equivalent to Native BLE.
+
+Use a Native transport for mobile:
+
+ChatService
+    ↓
+BLETransport
+    ├── Android BLE
+    └── iOS BLE
+
+
+Keep BLE code outside React UI components.
+
+BLE responsibilities should include:
+
+device discovery
+handshake
+capability exchange
+secure session
+packet transfer
+relay
+deduplication
+TTL
+connection management
+
+Do not implement fake BLE functionality.
+
+If the current project does not contain a mobile runtime, determine the safest architecture for adding Android/iOS support without destroying the current Web application.
+
+Evaluate:
+
+React Native
+Expo
+React Native Web
+Capacitor
+separate mobile package
+
+Choose based on the actual repository architecture.
+
+Explain the decision before implementation.
+
+13. WEB TRANSPORT
+
+Web browsers cannot be assumed to support the same BLE Mesh functionality as native mobile apps.
+
+Web should use an appropriate transport such as:
+
+Supabase Realtime
+WebSocket
+WebRTC
+
+depending on the architecture.
+
+The critical requirement is:
+
+The Message Protocol must remain identical across all transports.
+
+Example:
+
+Mobile A
+ ↓
+BLE Mesh
+ ↓
+Mobile B
+
+
+and:
+
+Web A
+ ↓
+WebRTC/WebSocket/Supabase
+ ↓
+Web B
+
+
+Both use the same Message Protocol.
+
+14. SUPABASE TRANSPORT
+
+Refactor the existing Supabase logic.
+
+Instead of:
+
+GroupDetailScreen
+   ↓
+Supabase
+
+
+use:
+
+GroupDetailScreen
+   ↓
+ChatService
+   ↓
+SupabaseTransport
+   ↓
+Supabase
+
+
+Realtime should be treated as a transport/event source.
+
+Do not place networking/business logic directly inside React components.
+
+15. SYNC ENGINE
+
+Implement:
+
+SyncEngine
+
+
+Responsibilities:
+
+detect unsynchronized messages
+upload pending messages
+download new messages
+resolve duplicates
+update message states
+retry failed operations
+synchronize Mesh-delivered messages
+synchronize messages received through Supabase
+resolve duplicate copies received from different transports
+
+Example:
+
+Offline:
+
+A → B → C
+
+C receives message.
+
+Later:
+
+C
+ ↓
+Internet
+ ↓
+SyncEngine
+ ↓
+Supabase
+
+16. MESSAGE STATES
+
+Implement a clear message state machine.
+
+Possible states:
+
+pending
+sending
+sent
+delivered
+read
+failed
+offline
+relayed
+synced
+
+
+Do not introduce unnecessary states.
+
+Example:
+
+pending
+   ↓
+sending
+   ↓
+sent
+   ↓
+delivered
+   ↓
+read
+
+
+Offline:
+
+pending
+   ↓
+offline
+   ↓
+relayed
+   ↓
+synced
+
+17. END-TO-END ENCRYPTION
+
+The system should be designed for E2E encryption.
+
+Target architecture:
+
+Sender
+   ↓
+Encrypt
+   ↓
+Ciphertext
+   ↓
+BLE / Supabase / WebRTC
+   ↓
+Recipient
+   ↓
+Decrypt
+
+
+Supabase must not be able to read message plaintext.
+
+BLE relay devices must not be able to read message plaintext.
+
+Do not invent cryptographic algorithms.
+
+Use well-maintained cryptographic libraries.
+
+Evaluate bitchat's encryption concepts and protocol architecture, but do not copy incompatible licensed code.
+
+Before reusing any code:
+
+Inspect source.
+Inspect license.
+Inspect copyright.
+Determine compatibility.
+Prefer an independent implementation when appropriate.
+18. DEVICE IDENTITY
+
+Each device must have its own identity.
+
+Conceptually:
+
+userId
+deviceId
+publicKey
+privateKey
+
+
+One user may have:
+
+User
+ ├── Phone
+ ├── Tablet
+ └── Laptop
+
+
+Do not treat userId as the device identity.
+
+Private keys must never be logged.
+
+19. GROUP SECURITY
+
+Every Group message must contain:
+
+conversationId
+
+
+Before accepting a message, validate:
+
+conversation ID
+membership
+sender
+device identity
+signature
+encryption
+authorization
+
+A device must not be able to inject arbitrary messages into Groups it does not belong to.
+
+20. ATTACHMENTS
+
+Preserve the existing attachment/file functionality.
+
+For online mode:
+
+Message
+ ↓
+Attachment metadata
+ ↓
+Supabase Storage
+
+
+For offline Mesh:
+
+Do not automatically relay very large files.
+
+Implement sensible:
+
+file size limits
+optional chunking
+progress
+retry
+expiration
+relay rules
+
+The message metadata should remain usable even if the attachment cannot currently be transferred.
+
+21. UI
+
+Keep the existing Chat UI as much as possible.
+
+Add connection status.
+
+Examples:
+
+🟢 Online
+🔵 Mesh
+🟡 Syncing
+🔴 Offline
+
+
+Add message status:
+
+Pending
+Sent
+Delivered
+Relayed
+Synced
+
+
+Do not redesign the entire application unless necessary.
+
+22. SECURITY
+
+Consider:
+
+replay attacks
+duplicate messages
+forged senders
+forged devices
+unauthorized Group messages
+malicious relay nodes
+oversized packets
+flooding
+spam
+expired messages
+invalid signatures
+invalid ciphertext
+compromised devices
+key rotation
+
+Treat every BLE peer as potentially hostile.
+
+23. NETWORK DISCOVERY
+
+BLE discovery should conceptually follow:
+
+Device Discovery
+      ↓
+Handshake
+      ↓
+Capability Exchange
+      ↓
+Secure Session
+      ↓
+Message Exchange
+
+
+Do not transmit sensitive message contents before establishing the appropriate security mechanism.
+
+24. PROTOCOL VERSIONING
+
+Every message must include:
+
+{
+  protocolVersion: 1
+}
+
+
+This allows future protocol upgrades.
+
+25. SUPABASE DATABASE
+
+Before changing the database:
+
+Inspect:
+
+group_messages
+foreign keys
+indexes
+RLS
+Realtime publication
+policies
+existing relationships
+
+Do not delete existing data.
+
+Do not perform destructive migrations.
+
+Use incremental migrations.
+
+26. SUPABASE RLS
+
+Verify that users cannot:
+
+read messages from Groups they are not members of
+send messages to unauthorized Groups
+modify other users' messages
+delete unauthorized messages
+
+Security must exist at the database level, not only in the frontend.
+
+27. TESTING
+
+Add tests for:
+
+Message Protocol
+serialization
+deserialization
+invalid messages
+missing fields
+protocol version
+Deduplication
+same message received 5 times
+→ processed once
+
+Mesh
+A → B → C
+
+
+and:
+
+A → B → C → B
+
+
+must not create an infinite loop.
+
+Offline
+send offline
+→ local persistence
+→ reconnect
+→ synchronization
+
+Supabase
+send online
+→ database
+→ realtime
+
+Encryption
+encrypt
+→ transport
+→ decrypt
+
+
+Verify that plaintext is not transmitted through the transport layer.
+
+28. LOGGING
+
+Use development logging categories:
+
+[CHAT]
+[BLE]
+[MESH]
+[SYNC]
+[CRYPTO]
+[SUPABASE]
+
+
+Never log in production:
+
+plaintext messages
+private keys
+passwords
+authentication tokens
+sensitive user data
+29. PERFORMANCE
+
+Prevent:
+
+infinite broadcasting
+excessive battery consumption
+excessive Supabase writes
+memory leaks
+uncontrolled retries
+
+Use:
+
+TTL
+deduplication
+exponential backoff
+queue limits
+expiration
+connection management
+30. BITCHAT RESEARCH
+
+Study bitchat for architectural concepts such as:
+
+peer discovery
+BLE Mesh
+relay
+store & forward
+offline messaging
+protocol design
+encryption
+synchronization
+
+Do not blindly copy the project.
+
+For every reused component:
+
+Source
+License
+Compatibility
+Modification
+Reason
+
+
+If a component is under an incompatible license, do not copy it.
+
+Implement an independent equivalent when appropriate.
+
+31. IMPLEMENTATION PHASES
+
+Do NOT implement everything at once.
+
+Phase 1 — Chat Refactor
+
+Refactor:
+
+GroupDetailScreen
+        ↓
+ChatService
+        ↓
+SupabaseTransport
+
+
+Preserve current online behavior.
+
+Acceptance criteria:
+
+Existing Chat still works.
+Messages still arrive through Realtime.
+Groups still work.
+Attachments still work.
+No regression.
+Phase 2 — Offline Foundation
+
+Implement:
+
+MessageProtocol
+MessageStore
+MessageQueue
+Offline Mode
+
+
+A user must be able to compose and persist messages without Internet.
+
+Phase 3 — Synchronization
+
+Implement:
+
+SyncEngine
+
+
+Messages created offline must synchronize when Internet returns.
+
+Phase 4 — Mobile BLE
+
+Implement:
+
+BLETransport
+
+
+with:
+
+discovery
+handshake
+secure sessions
+transfer
+relay
+deduplication
+TTL
+Store & Forward
+Phase 5 — E2E Encryption
+
+Implement secure encryption and device identity.
+
+Phase 6 — Web Transport
+
+Implement an appropriate Web transport:
+
+WebRTC
+WebSocket
+Supabase
+
+based on the architecture discovered during the repository audit.
+
+Phase 7 — UI Improvements
+
+Add:
+
+connection status
+offline state
+relay status
+synchronization status
+message delivery state
+32. DEVELOPMENT PROCESS
+
+After the initial audit, provide:
+
+A. Current Architecture
+
+Explain the current project structure.
+
+B. Current Chat Architecture
+
+Explain:
+
+UI
+ ↓
+Service
+ ↓
+Supabase
+ ↓
+Database
+
+
+as it currently exists.
+
+C. Files to Modify
+
+List every file that needs modification.
+
+D. New Files
+
+List every file that should be created.
+
+E. Database Changes
+
+List all required migrations.
+
+F. Dependencies
+
+List new dependencies and explain why each is necessary.
+
+G. Mobile Strategy
+
+Explain how Android and iOS will be supported.
+
+H. Web Strategy
+
+Explain how Web will communicate.
+
+I. Licensing
+
+Explain any bitchat licensing concerns.
+
+J. Implementation Plan
+
+Present the phases before coding.
+
+33. DO NOT START WITH PHASE 2
+
+After the audit, implement Phase 1 only.
+
+Do not proceed automatically to Phase 2.
+
+Phase 1 must be working before continuing.
+
+After Phase 1, report:
+
+Files modified:
+Files created:
+Database changes:
+Dependencies:
+Tests:
+Known limitations:
+
+
+Then stop and wait for approval.
+
+34. DEFINITION OF DONE
+
+The final system must support:
+
+Online
+User A
+ ↓
+Chat UI
+ ↓
+ChatService
+ ↓
+Supabase
+ ↓
+User B
+
+Offline
+User A
+ ↓
+ChatService
+ ↓
+Local Store
+ ↓
+BLE Mesh
+ ↓
+User B
+
+Multi-Hop
+A
+ ↓
+B
+ ↓
+C
+ ↓
+D
+
+Reconnection
+Offline Message
+ ↓
+Local Queue
+ ↓
+Internet Returns
+ ↓
+Supabase
+ ↓
+Sync
+
+Deduplication
+Same message received multiple times
+        ↓
+Displayed once
+
+Encryption
+Relay Device
+      ↓
+Encrypted Packet
+      ↓
+Cannot read plaintext
+
+Web
+
+The existing Web Chat must continue working independently of Native Bluetooth.
+
+35. FINAL ARCHITECTURE TARGET
+                    control.code
+                         │
+                  ┌──────┴──────┐
+                  │             │
+              Online         Offline
+                  │             │
+               Supabase       BLE Mesh
+                  │             │
+             Realtime        Relay / Store
+                  │             │
+                  └──────┬──────┘
+                         │
+                    ChatService
+                         │
+                  Message Protocol
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+          Local Store          E2E Encryption
+              │
+          Sync Engine
+              │
+       ┌──────┴──────┐
+       │             │
+      Web          Mobile
+       │             │
+ WebTransport   Native BLE
+
+
+The architecture must remain modular so that future transports can be added without changing the Chat UI or Message Protocol.
+
+IMMEDIATE ACTION
+
+Start by auditing the repository.
+
+Do not modify code yet.
+
+Return:
+
+Current architecture.
+Current Chat flow.
+Current Supabase structure.
+Current Groups structure.
+Current attachment implementation.
+Mobile/Web architecture.
+Recommended target architecture.
+Files to modify.
+Files to create.
+Database migrations.
+Dependencies.
+bitchat licensing considerations.
+Phase 1 implementation plan.
+
+Then wait for approval before implementing Phase 1.

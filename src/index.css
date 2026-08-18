@@ -1,40 +1,83 @@
-@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap");
 
-/* ── Design Tokens ─────────────────────────────────────────────────── */
+/* ── $10,000 Enterprise Design System (Obsidian & Platinum Luxury Studio) ── */
 :root {
-  --primary: #000000;
-  --primary-light: #333333;
-  --primary-pale: #f0f0f0;
-  --accent: #111111;
-  --bg-app: #fcfcfc;
-  --bg-card: #ffffff;
-  --text-main: #000000;
-  --text-sub: #4a4a4a;
-  --text-dim: #888888;
-  --border: rgba(0,0,0,0.1);
-  --shadow: 0 4px 20px rgba(0,0,0,0.06);
-  --shadow-md: 0 8px 30px rgba(0,0,0,0.1);
-  --radius-lg: 24px;
-  --radius-md: 16px;
+  /* Brand System Colors */
+  --enterprise-primary:       #0f172a;  /* Deep Slate Charcoal */
+  --enterprise-primary-light: #1e293b;  /* Elevated Slate */
+  --enterprise-primary-pale:  #f1f5f9;  /* Soft Ice Slate */
+  --enterprise-secondary:     #64748b;  /* Slate Muted */
+  --enterprise-accent:        #0ea5e9;  /* Vivid Sky Accent */
+  --enterprise-success:       #10b981;  /* Emerald Green */
+  --enterprise-warning:       #f59e0b;  /* Amber Gold */
+  --enterprise-danger:        #ef4444;  /* Crimson Red */
+
+  /* Aliases */
+  --primary:       #0f172a;
+  --primary-light: #1e293b;
+  --primary-pale:  #f1f5f9;
+  --accent:        #0ea5e9;
+
+  /* Premium Light Canvas */
+  --bg-app:    #f8fafc;  /* Ice White Canvas */
+  --bg-card:   #ffffff;  /* Pure Crisp Surface */
+  --bg-subtle: #f1f5f9;  /* Sub-surface Fill */
+  --bg-glass:  rgba(255, 255, 255, 0.82);
+
+  /* Typography Colors */
+  --text-main: #0f172a;  /* High Contrast Heading */
+  --text-sub:  #334155;  /* Secondary Label */
+  --text-dim:  #64748b;  /* Muted Tertiary Label */
+
+  /* Precision Borders & Multi-layered Shadows */
+  --border:          rgba(148, 163, 184, 0.22);
+  --border-subtle:   rgba(148, 163, 184, 0.14);
+  --shadow:          0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+  --shadow-md:       0 4px 20px -2px rgba(15, 23, 42, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.04);
+  --shadow-lg:       0 20px 40px -4px rgba(15, 23, 42, 0.12), 0 8px 16px -4px rgba(15, 23, 42, 0.06);
+  --inner-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+
+  /* Corner Radii (Modern Squircle) */
+  --radius-lg: 20px;
+  --radius-md: 14px;
   --radius-sm: 10px;
-  --nav-height: 68px;
-  --transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+  --radius-pill: 9999px;
+
+  /* Typography & Motion */
+  --nav-height: 70px;
+  --font-main: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Outfit", "Inter", sans-serif;
+  --transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  --apple-blur: blur(20px) saturate(190%);
 }
 
-/* Dark mode */
+/* ── $10,000 Dark Mode (Vercel & Linear Obsidian Studio) ──────────── */
 .theme-dark {
-  --primary: #ffffff;
-  --primary-light: #cccccc;
-  --accent: #eeeeee;
-  --bg-app: #000000;
-  --bg-card: #111111;
-  --text-main: #ffffff;
-  --text-sub: #bbbbbb;
-  --text-dim: #777777;
-  --border: rgba(255,255,255,0.15);
-  --shadow: 0 4px 20px rgba(255,255,255,0.03);
-  --shadow-md: 0 8px 30px rgba(255,255,255,0.06);
-  --primary-pale: rgba(255,255,255,0.1);
+  --enterprise-primary:       #ffffff;  /* Pure Ice White */
+  --enterprise-primary-light: #f8fafc;  /* Light Platinum */
+  --enterprise-primary-pale:  rgba(255, 255, 255, 0.08);
+  --enterprise-secondary:     #94a3b8;  /* Muted Slate */
+  --enterprise-accent:        #38bdf8;  /* Sky Blue Glow */
+
+  --primary:       #ffffff;
+  --primary-light: #f8fafc;
+  --primary-pale:  rgba(255, 255, 255, 0.08);
+  --accent:        #38bdf8;
+
+  --bg-app:    #090d16;  /* Deep Midnight Canvas */
+  --bg-card:   #111827;  /* High-end Dark Surface */
+  --bg-subtle: #1f2937;  /* Sub-surface Fill */
+  --bg-glass:  rgba(17, 24, 39, 0.82);
+
+  --text-main: #f8fafc;  /* Crisp White */
+  --text-sub:  #cbd5e1;  /* Platinum Sub */
+  --text-dim:  #94a3b8;  /* Dim Label */
+
+  --border:          rgba(255, 255, 255, 0.10);
+  --border-subtle:   rgba(255, 255, 255, 0.06);
+  --shadow:          0 4px 20px rgba(0, 0, 0, 0.5);
+  --shadow-md:       0 12px 32px rgba(0, 0, 0, 0.7);
+  --shadow-lg:       0 24px 60px rgba(0, 0, 0, 0.88);
+  --inner-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
 }
 
 /* ── Reset ─────────────────────────────────────────────────────────── */
@@ -51,11 +94,13 @@ html, body {
 }
 
 body {
-  font-family: "Outfit", sans-serif;
+  font-family: var(--font-main);
   background-color: var(--bg-app);
   color: var(--text-main);
   min-height: 100vh;
-  transition: background-color 0.3s, color 0.3s;
+  transition: background-color 0.3s cubic-bezier(0.25, 1, 0.5, 1), color 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
@@ -268,83 +313,101 @@ body {
   margin-top: -20px;
 }
 
-/* ── Cards ─────────────────────────────────────────────────────────── */
+/* ── Cards (Apple Squircle Widget Design) ──────────────────────────── */
 .card {
   background: var(--bg-card);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 22px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
   margin-bottom: 16px;
+  transition: var(--transition);
+}
+.card:hover {
+  box-shadow: var(--shadow-md);
 }
 
-/* ── Buttons ────────────────────────────────────────────────────────── */
+/* ── Buttons (Apple Pill Controls & Tactile Press) ──────────────────── */
 .btn-primary {
   background: var(--primary);
-  color: white;
+  color: var(--bg-app);
   border: none;
-  padding: 14px 24px;
-  border-radius: 50px;
-  font-family: "Outfit", sans-serif;
+  padding: 14px 28px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-main);
   font-weight: 600;
   font-size: 15px;
+  letter-spacing: -0.01em;
   width: 100%;
   cursor: pointer;
   transition: var(--transition);
-  box-shadow: 0 4px 14px rgba(0,0,0,0.1);
+  box-shadow: var(--shadow);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
-.btn-primary:hover { opacity: 0.92; transform: translateY(-1px); }
-.btn-primary:active { transform: scale(0.98); }
+.btn-primary:hover { opacity: 0.94; transform: scale(1.01); }
+.btn-primary:active { transform: scale(0.96); }
 
 .btn-secondary {
   background: var(--primary-pale);
-  color: var(--primary);
+  color: var(--text-main);
   border: 1px solid var(--border);
-  padding: 12px 20px;
-  border-radius: 50px;
-  font-family: "Outfit", sans-serif;
+  padding: 12px 24px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-main);
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
   transition: var(--transition);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
-.btn-secondary:hover { background: rgba(29,84,109,0.12); }
+.btn-secondary:hover { background: var(--bg-subtle); transform: scale(1.01); }
+.btn-secondary:active { transform: scale(0.96); }
 
-/* ── Typography ─────────────────────────────────────────────────────── */
-h1 { font-size: clamp(1.4rem, 4vw, 2rem); font-weight: 700; }
-h2 { font-size: clamp(1.1rem, 3vw, 1.4rem); font-weight: 600; }
-h3 { font-size: 1rem; font-weight: 600; }
-p  { font-weight: 400; line-height: 1.6; }
+/* ── Typography (Apple San Francisco Feel) ─────────────────────────── */
+h1 { font-size: clamp(1.5rem, 4vw, 2.2rem); font-weight: 700; letter-spacing: -0.025em; }
+h2 { font-size: clamp(1.15rem, 3vw, 1.5rem); font-weight: 600; letter-spacing: -0.02em; }
+h3 { font-size: 1.05rem; font-weight: 600; letter-spacing: -0.015em; }
+p  { font-weight: 400; line-height: 1.6; letter-spacing: -0.01em; }
 
 /* ── Section Header ─────────────────────────────────────────────────── */
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 14px;
-  margin-top: 22px;
+  margin-bottom: 16px;
+  margin-top: 24px;
 }
 .section-header h2 { color: var(--text-main); }
-.see-all { font-size: 0.85rem; color: var(--primary-light); text-decoration: none; font-weight: 500; }
+.see-all { font-size: 0.88rem; color: var(--text-dim); text-decoration: none; font-weight: 600; transition: var(--transition); }
+.see-all:hover { color: var(--text-main); }
 
-/* ── Header bar ─────────────────────────────────────────────────────── */
+/* ── Header bar (Apple Frosted Glass) ───────────────────────────────── */
 .top-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 16px 0;
+  padding: 16px 20px;
   position: sticky;
   top: 0;
-  background: var(--bg-app);
+  background: var(--bg-glass);
+  backdrop-filter: var(--apple-blur);
+  -webkit-backdrop-filter: var(--apple-blur);
   z-index: 100;
+  border-bottom: 1px solid var(--border);
   padding-top: env(safe-area-inset-top, 16px);
 }
 
 /* ── Icon button ─────────────────────────────────────────────────────── */
 .icon-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border);
   background: var(--bg-card);
   display: flex;
@@ -355,31 +418,33 @@ p  { font-weight: 400; line-height: 1.6; }
   transition: var(--transition);
   position: relative;
 }
-.icon-btn:hover { background: var(--primary-pale); color: var(--primary); }
+.icon-btn:hover { background: var(--bg-subtle); transform: scale(1.05); }
+.icon-btn:active { transform: scale(0.94); }
 .unread-dot {
   position: absolute;
-  top: 7px; right: 7px;
-  width: 7px; height: 7px;
-  background: #ff4757;
+  top: 6px; right: 6px;
+  width: 8px; height: 8px;
+  background: var(--enterprise-danger);
   border-radius: 50%;
   border: 2px solid var(--bg-card);
 }
 
-/* ── Input ───────────────────────────────────────────────────────────── */
+/* ── Input (Apple Search & Field Styling) ────────────────────────────── */
 input, textarea {
-  font-family: "Outfit", sans-serif;
+  font-family: var(--font-main);
   color: var(--text-main);
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-size: 15px;
+  padding: 12px 16px;
   transition: var(--transition);
   outline: none;
   width: 100%;
 }
 input:focus, textarea:focus {
-  border-color: var(--primary-light);
-  box-shadow: 0 0 0 3px rgba(98,159,173,0.15);
+  border-color: var(--text-main);
+  box-shadow: 0 0 0 3px var(--border);
 }
 
 /* ── Calendar strip ──────────────────────────────────────────────────── */
@@ -497,28 +562,37 @@ input:focus, textarea:focus {
   color: rgba(255,255,255,0.9);
 }
 
-/* ── Journal card ─────────────────────────────────────────────────────── */
+/* ── Journal card (Luxury Obsidian Glass Card) ───────────────────────── */
 .main-journal-card {
-  background: linear-gradient(135deg, #EAE0CF 0%, #D4C8B5 100%);
+  background: linear-gradient(135deg, #1C1C1E 0%, #000000 100%);
+  color: #FFFFFF;
   border-radius: var(--radius-lg);
-  padding: 22px;
+  padding: 26px;
   display: flex;
   justify-content: space-between;
   position: relative;
   overflow: hidden;
   cursor: pointer;
   margin-bottom: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: var(--shadow-md);
+  transition: var(--transition);
+}
+.main-journal-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
 }
 .theme-dark .main-journal-card {
-  background: linear-gradient(135deg, rgba(98,159,173,0.2) 0%, rgba(29,84,109,0.3) 100%);
+  background: linear-gradient(135deg, #2C2C2E 0%, #1C1C1E 100%);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 /* ── Nav icon btn ─────────────────────────────────────────────────────── */
 .nav-icon-btn {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  width: 40px; height: 40px;
-  border-radius: 12px;
+  width: 42px; height: 42px;
+  border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -527,6 +601,7 @@ input:focus, textarea:focus {
   transition: var(--transition);
   position: relative;
 }
+.nav-icon-btn:hover { background: var(--bg-subtle); transform: scale(1.05); }
 
 /* ── RTL ──────────────────────────────────────────────────────────────── */
 .rtl { direction: rtl; text-align: right; }
@@ -542,7 +617,7 @@ input:focus, textarea:focus {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 16px;
+  padding: 16px 20px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -550,18 +625,19 @@ input:focus, textarea:focus {
   transition: var(--transition);
   margin-bottom: 10px;
 }
-.profile-menu-item:hover { background: var(--primary-pale); }
+.profile-menu-item:hover { background: var(--bg-subtle); transform: translateX(2px); }
 
-/* ── Modal overlay ────────────────────────────────────────────────────── */
+/* ── Modal overlay (Apple Frosted Backdrop Blur) ─────────────────────── */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: flex-end;
   justify-content: center;
   z-index: 2000;
-  backdrop-filter: blur(4px);
+  backdrop-filter: var(--apple-blur);
+  -webkit-backdrop-filter: var(--apple-blur);
   padding: 0;
 }
 @media (min-width: 640px) {
@@ -569,19 +645,20 @@ input:focus, textarea:focus {
 }
 .modal-card {
   background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  padding: 24px;
+  padding: 28px;
   width: 100%;
-  max-width: 480px;
-  box-shadow: var(--shadow-md);
-  animation: slideUp 0.25s ease-out;
+  max-width: 500px;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.3s cubic-bezier(0.25, 1, 0.5, 1);
 }
 @media (min-width: 640px) {
   .modal-card { border-radius: var(--radius-lg); }
 }
 @keyframes slideUp {
-  from { transform: translateY(40px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from { transform: translateY(30px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
 }
 
 /* ── Chat bubbles ─────────────────────────────────────────────────────── */
@@ -1280,3 +1357,192 @@ input:focus, textarea:focus {
     gap: 16px;
   }
 }
+
+/* ── $10,000 Enterprise Ultra-Sleek Scrollbars & Micro Details ────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(120, 120, 120, 0.22);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 120, 120, 0.45);
+}
+
+/* Selection tint */
+::selection {
+  background: var(--text-main);
+  color: var(--bg-app);
+}
+
+/* Glassmorphic Badge */
+.enterprise-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ================================================================
+   MOBILE-FIRST & TABLET ULTRA-RESPONSIVE SYSTEM
+   ================================================================ */
+
+/* Mobile Phones (max-width: 767px) */
+@media (max-width: 767px) {
+  /* Prevent iOS zoom on inputs */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+
+  /* Safe Touch Targets (minimum 44px height per Apple HIG) */
+  button, input, select, .btn-primary, .btn-secondary, .icon-btn, .nav-icon-btn {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  /* Page container full width on mobile */
+  .page-content {
+    padding: 14px 12px calc(var(--nav-height) + 20px) !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  /* Compact top bar */
+  .top-bar {
+    padding: 12px 14px !important;
+  }
+
+  /* Full-width Cards with touch padding */
+  .card {
+    padding: 16px !important;
+    border-radius: 18px !important;
+    margin-bottom: 12px !important;
+  }
+
+  /* Mobile Sheet Modals (Bottom Slide Up) */
+  .modal-overlay {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+  .modal-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 28px 28px 0 0 !important;
+    max-height: 90vh !important;
+    padding: 24px 18px 36px !important;
+    box-shadow: 0 -10px 40px rgba(0,0,0,0.3) !important;
+  }
+
+  /* Mobile Horizontal Scrollable Tab Bar */
+  .mobile-tabs-container {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding: 6px 2px 12px;
+    margin-bottom: 16px;
+  }
+  .mobile-tabs-container::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Mobile Touch-optimised Kanban Board */
+  .kanban-board-container {
+    display: flex !important;
+    gap: 12px !important;
+    overflow-x: auto !important;
+    scroll-snap-type: x mandatory !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-bottom: 12px !important;
+  }
+  .kanban-column {
+    min-width: 86vw !important;
+    max-width: 88vw !important;
+    scroll-snap-align: center !important;
+    border-radius: 18px !important;
+  }
+
+  /* Mobile Stacked Grids */
+  .responsive-grid-2,
+  .responsive-grid-3,
+  .responsive-grid-4,
+  .analytics-grid-2 {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* Touch Feedback scale effect */
+  button:active, .card:active {
+    transform: scale(0.98);
+  }
+
+  /* Mobile Utilities & Wiki Drawer */
+  .hide-mobile {
+    display: none !important;
+  }
+  .wiki-container {
+    position: relative !important;
+    height: 75vh !important;
+    min-height: 500px !important;
+    overflow: hidden !important;
+  }
+  .wiki-sidebar {
+    position: absolute !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    z-index: 50 !important;
+    background: var(--bg-card) !important;
+    border: none !important;
+  }
+  .wiki-editor-content {
+    padding: 16px 12px !important;
+  }
+}
+
+/* Desktop (min-width: 768px) */
+@media (min-width: 768px) {
+  .page-content {
+    padding: 24px 24px 36px !important;
+  }
+  .kanban-column {
+    min-width: 240px !important;
+    max-width: 260px !important;
+  }
+  .responsive-grid-3,
+  .responsive-grid-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .wiki-container {
+    display: flex !important;
+    position: relative !important;
+    height: 78vh !important;
+    min-height: 560px !important;
+  }
+  .wiki-sidebar {
+    position: relative !important;
+    width: 260px !important;
+    min-width: 260px !important;
+    max-width: 260px !important;
+    height: 100% !important;
+    z-index: 1 !important;
+  }
+}
+

@@ -31,10 +31,10 @@ try {
 }
 
 // ── Supabase Admin Client (bypasses RLS via service_role key) ────────────────
-// Uses VITE_SUPABASE_URL which is already set in Vercel environment variables.
-// Only SUPABASE_SERVICE_ROLE_KEY needs to be added to Vercel.
-const supabaseAdmin = (process.env.VITE_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
-  ? createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+// This is the KEY fix: reading fcm_token from profiles requires service_role
+// because RLS would block anon/user access to other users' tokens.
+const supabaseAdmin = (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
   : null;
 
 // ── Main Handler ─────────────────────────────────────────────────────────────
